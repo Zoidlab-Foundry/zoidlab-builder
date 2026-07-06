@@ -10,7 +10,7 @@ import db
 from schema import Workflow, RunRequest
 from executor import run_workflow
 from llm import list_models
-from copilot import generate as copilot_generate
+from flowsmith import generate as flowsmith_generate
 from pydantic import BaseModel
 
 app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0")
@@ -66,11 +66,11 @@ class GenerateRequest(BaseModel):
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest):
-    """AI Copilot: natural-language description → workflow DAG."""
+    """Flowsmith: natural-language description → workflow DAG."""
     try:
-        return await copilot_generate(req.prompt, req.model)
+        return await flowsmith_generate(req.prompt, req.model)
     except Exception as ex:
-        raise HTTPException(400, f"Copilot could not build that: {ex}")
+        raise HTTPException(400, f"Flowsmith could not build that: {ex}")
 
 
 @app.post("/api/run")

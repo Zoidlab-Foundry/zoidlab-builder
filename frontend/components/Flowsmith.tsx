@@ -10,7 +10,7 @@ const EXAMPLES = [
   "Take a topic, research talking points with an LLM, then write a 5-bullet meeting brief.",
 ];
 
-export default function Copilot({
+export default function Flowsmith({
   open,
   onClose,
   onGenerated,
@@ -52,7 +52,7 @@ export default function Copilot({
       >
         <div className="mb-3 flex items-center gap-2">
           <span className="grid h-7 w-7 place-items-center rounded-lg bg-vi/20 text-[15px] text-ind">✦</span>
-          <div className="text-[14px] font-semibold text-ink">Copilot</div>
+          <div className="text-[14px] font-semibold text-ink">Flowsmith</div>
           <div className="text-[12px] text-dim">— describe a workflow, get a graph</div>
           <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-[13px] text-dim hover:bg-line hover:text-ink">✕</button>
         </div>
@@ -81,13 +81,13 @@ export default function Copilot({
         </div>
 
         <div className="mt-4 flex items-center justify-between">
-          <span className="text-[11px] text-dim/70">⌘/Ctrl + Enter to generate</span>
+          <span className="text-[11px] text-dim/70">⌘/Ctrl + Enter to forge</span>
           <button
             onClick={go}
             disabled={busy || !prompt.trim()}
             className="rounded-lg bg-gradient-to-r from-cy to-vi px-5 py-2 text-[12px] font-semibold text-bg transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            {busy ? "Generating…" : "✦ Generate workflow"}
+            {busy ? "Forging…" : "✦ Forge workflow"}
           </button>
         </div>
       </div>

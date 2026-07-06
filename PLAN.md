@@ -74,7 +74,7 @@ touching callers (all persistence behind `db.py`; execution behind `executor.py`
   retries, top workflows.
 - **Security** — RBAC, projects, orgs, secrets vault, encrypted credentials, audit logs, API
   keys, approval chains, dev/test/prod separation.
-- **AI Assist (copilot)** — user describes a workflow in plain English; AI builds the graph,
+- **Flowsmith (AI assist)** — user describes a workflow in plain English; AI builds the graph,
   wires connections, generates prompts, configures variables. A defining feature.
 
 ## 5. Nyquest integration
@@ -98,7 +98,7 @@ execution viz, retry/timeout. *Deliverable: production-capable AI workflows.*
 scheduling, API deployment, monitoring dashboard, cost/token analytics, audit logs, templates.
 *Deliverable: enterprise-ready platform for customer deployments.*
 
-**Phase 4 — AI-native (4–6 wks):** copilot that generates workflows from natural language,
+**Phase 4 — AI-native (4–6 wks):** Flowsmith generates workflows from natural language,
 auto-optimization + quality analysis + performance recommendations, multi-agent orchestration,
 native Nyquest nodes. *Deliverable: an AI development environment, not just a visual automation tool.*
 
@@ -125,10 +125,11 @@ Live at **builder.zoidlab.ai** (behind an interim password gate). Delivered:
 
 ## 9. Immediate next steps
 
-1. **AI Copilot** — NL → workflow generation (the defining feature). ← *building now*
-2. Workflow list / open picker in the UI (backend already supports it).
-3. Broaden node library + starter templates.
-4. Versioning + rollback.
+1. ~~**Flowsmith** — NL → workflow generation (the defining feature).~~ ✅ shipped
+2. ~~Integrated right-click context menus + instructional tour.~~ ✅ shipped
+3. Workflow list / open picker in the UI (backend already supports it).
+4. Broaden node library + starter templates.
+5. Versioning + rollback.
 5. Cloudflare Access hardening.
 
 ## 10. Success criteria

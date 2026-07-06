@@ -32,9 +32,9 @@ export const TOUR_STEPS: TourStep[] = [
     placement: "left",
   },
   {
-    target: '[data-tour="copilot"]',
-    title: "4 · AI Copilot",
-    body: "Short on time? Describe a workflow in plain English and Copilot builds the whole graph for you to refine.",
+    target: '[data-tour="flowsmith"]',
+    title: "4 · Flowsmith",
+    body: "Short on time? Describe a workflow in plain English and Flowsmith forges the whole graph for you to refine.",
     placement: "bottom",
   },
   {

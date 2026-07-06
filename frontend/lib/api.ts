@@ -19,7 +19,7 @@ export async function generateWorkflow(prompt: string, model?: string): Promise<
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
-    throw new Error(j.detail || "Copilot failed");
+    throw new Error(j.detail || "Flowsmith failed");
   }
   return r.json();
 }

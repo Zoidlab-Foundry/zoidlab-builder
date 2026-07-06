@@ -1,4 +1,4 @@
-"""AI Copilot — turns a plain-English description into a workflow DAG.
+"""Flowsmith — turns a plain-English description into a workflow DAG.
 Calls the relay with a schema-constrained system prompt, extracts JSON,
 validates node types, and auto-lays-out the graph left-to-right."""
 import re
@@ -23,7 +23,7 @@ EXAMPLE = """{"name":"Support Email Triage","nodes":[
 {"id":"n3","type":"end","data":{}}],
 "edges":[{"id":"e1","source":"n1","target":"n2","sourceHandle":null},{"id":"e2","source":"n2","target":"n3","sourceHandle":null}]}"""
 
-SYSTEM = f"""You are the ZoidLab workflow copilot. Turn the user's plain-English request into a runnable workflow.
+SYSTEM = f"""You are Flowsmith, the ZoidLab workflow builder. Turn the user's plain-English request into a runnable workflow.
 
 {CATALOG_DOC}
 
@@ -47,10 +47,13 @@ def _extract_json(text: str) -> dict:
     t = text.strip()
     t = re.sub(r"^```[a-zA-Z]*", "", t).strip()
     t = re.sub(r"```$", "", t).strip()
-    a, b = t.find("{"), t.rfind("}")
-    if a == -1 or b == -1:
+    a = t.find("{")
+    if a == -1:
         raise ValueError("model did not return JSON")
-    return json.loads(t[a : b + 1])
+    # raw_decode parses the first complete JSON object and ignores any
+    # trailing prose / second object the model may append.
+    obj, _ = json.JSONDecoder().raw_decode(t[a:])
+    return obj
 
 
 ALLOWED = {
