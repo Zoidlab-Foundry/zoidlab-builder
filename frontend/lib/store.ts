@@ -53,6 +53,12 @@ interface State {
   updateConfig: (id: string, patch: Record<string, any>) => void;
   select: (id: string | null) => void;
   deleteNode: (id: string) => void;
+  deleteEdge: (id: string) => void;
+  duplicateNode: (id: string) => void;
+  copyNode: (id: string) => void;
+  pasteNode: (pos: { x: number; y: number }) => void;
+  autoArrange: () => void;
+  clipboard: WFNodeData | null;
 
   setRunning: (b: boolean) => void;
   setNodeRun: (id: string, r: NodeRun) => void;
@@ -110,6 +116,63 @@ export const useStore = create<State>((set, get) => ({
       edges: get().edges.filter((e) => e.source !== id && e.target !== id),
       selectedId: null,
     }),
+
+  deleteEdge: (id) => set({ edges: get().edges.filter((e) => e.id !== id) }),
+
+  clipboard: null,
+
+  duplicateNode: (id) => {
+    const src = get().nodes.find((n) => n.id === id);
+    if (!src) return;
+    const copy: WFNode = {
+      id: nid(),
+      type: "wf",
+      position: { x: src.position.x + 40, y: src.position.y + 40 },
+      data: { nodeType: src.data.nodeType, config: { ...src.data.config } },
+    };
+    set({ nodes: [...get().nodes, copy], selectedId: copy.id });
+  },
+
+  copyNode: (id) => {
+    const src = get().nodes.find((n) => n.id === id);
+    if (src) set({ clipboard: { nodeType: src.data.nodeType, config: { ...src.data.config } } });
+  },
+
+  pasteNode: (pos) => {
+    const clip = get().clipboard;
+    if (!clip) return;
+    const node: WFNode = { id: nid(), type: "wf", position: pos, data: { nodeType: clip.nodeType, config: { ...clip.config } } };
+    set({ nodes: [...get().nodes, node], selectedId: node.id });
+  },
+
+  autoArrange: () => {
+    const { nodes, edges } = get();
+    const adj: Record<string, string[]> = {};
+    const indeg: Record<string, number> = {};
+    nodes.forEach((n) => (indeg[n.id] = 0));
+    edges.forEach((e) => {
+      (adj[e.source] ||= []).push(e.target);
+      if (e.target in indeg) indeg[e.target]++;
+    });
+    const depth: Record<string, number> = {};
+    nodes.forEach((n) => (depth[n.id] = 0));
+    const q = nodes.filter((n) => indeg[n.id] === 0).map((n) => n.id);
+    const seen = new Set(q);
+    while (q.length) {
+      const u = q.shift()!;
+      for (const v of adj[u] || []) {
+        depth[v] = Math.max(depth[v], depth[u] + 1);
+        if (!seen.has(v)) { seen.add(v); q.push(v); }
+      }
+    }
+    const col: Record<number, string[]> = {};
+    nodes.forEach((n) => ((col[depth[n.id]] ||= []).push(n.id)));
+    const pos: Record<string, { x: number; y: number }> = {};
+    Object.entries(col).forEach(([d, ids]) =>
+      ids.forEach((id, i) => (pos[id] = { x: 80 + Number(d) * 270, y: 120 + i * 140 }))
+    );
+    set({ nodes: nodes.map((n) => ({ ...n, position: pos[n.id] || n.position })) });
+  },
 
   setRunning: (b) => set({ running: b }),
   setNodeRun: (id, r) => set({ runStatus: { ...get().runStatus, [id]: r } }),

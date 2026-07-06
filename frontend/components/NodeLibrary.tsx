@@ -3,7 +3,7 @@ import { NODE_DEFS, CATEGORIES } from "../lib/catalog";
 
 export default function NodeLibrary() {
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-panel2">
+    <aside data-tour="library" className="flex w-60 shrink-0 flex-col border-r border-line bg-panel2">
       <div className="border-b border-line px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-dim">Node Library</div>
         <div className="mt-1 text-[11px] text-dim/70">Drag onto the canvas</div>

@@ -12,7 +12,7 @@ export default function ConfigPanel() {
 
   if (!node) {
     return (
-      <aside className="flex w-80 shrink-0 flex-col border-l border-line bg-panel2">
+      <aside data-tour="config" className="flex w-80 shrink-0 flex-col border-l border-line bg-panel2">
         <div className="flex flex-1 items-center justify-center p-8 text-center text-[12px] leading-relaxed text-dim/70">
           Select a node to configure it.<br />Drag from the library to add nodes, then connect the handles.
         </div>
