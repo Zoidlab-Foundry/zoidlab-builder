@@ -18,14 +18,23 @@ import { defByType } from "../lib/catalog";
 import WorkflowNode from "../components/WorkflowNode";
 import NodeLibrary from "../components/NodeLibrary";
 import ConfigPanel from "../components/ConfigPanel";
+import Copilot from "../components/Copilot";
+import type { Workflow } from "../lib/store";
 
 const nodeTypes: NodeTypes = { wf: WorkflowNode };
 
 function Builder() {
   const s = useStore();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const wrap = useRef<HTMLDivElement>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+
+  const onGenerated = (wf: Workflow) => {
+    s.loadWorkflow(wf);
+    flash("Copilot built “" + wf.name + "”");
+    setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 60);
+  };
 
   useEffect(() => {
     fetchModels().then((m) => s.setModels(m));
@@ -104,6 +113,12 @@ function Builder() {
         />
         <div className="ml-auto flex items-center gap-2">
           <span className="mr-1 text-[11px] text-dim">{s.models.length ? `${s.models.length} models` : "connecting…"}</span>
+          <button
+            onClick={() => setCopilotOpen(true)}
+            className="rounded-lg border border-vi/40 bg-vi/10 px-4 py-1.5 text-[12px] font-medium text-ind hover:bg-vi/20"
+          >
+            ✦ Copilot
+          </button>
           <button onClick={onSave} className="rounded-lg border border-line px-4 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink">
             Save
           </button>
@@ -156,6 +171,8 @@ function Builder() {
               {toast}
             </div>
           )}
+
+          <Copilot open={copilotOpen} onClose={() => setCopilotOpen(false)} onGenerated={onGenerated} />
         </div>
 
         <ConfigPanel />

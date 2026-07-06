@@ -10,6 +10,8 @@ import db
 from schema import Workflow, RunRequest
 from executor import run_workflow
 from llm import list_models
+from copilot import generate as copilot_generate
+from pydantic import BaseModel
 
 app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0")
 
@@ -55,6 +57,20 @@ def save_workflow(wf: Workflow):
 def delete_workflow(wid: str):
     db.delete_workflow(wid)
     return {"ok": True}
+
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    model: str | None = None
+
+
+@app.post("/api/generate")
+async def generate(req: GenerateRequest):
+    """AI Copilot: natural-language description → workflow DAG."""
+    try:
+        return await copilot_generate(req.prompt, req.model)
+    except Exception as ex:
+        raise HTTPException(400, f"Copilot could not build that: {ex}")
 
 
 @app.post("/api/run")

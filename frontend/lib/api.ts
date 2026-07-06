@@ -11,6 +11,19 @@ export async function fetchModels(): Promise<string[]> {
   }
 }
 
+export async function generateWorkflow(prompt: string, model?: string): Promise<Workflow> {
+  const r = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, model }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.detail || "Copilot failed");
+  }
+  return r.json();
+}
+
 export async function saveWorkflow(wf: Workflow) {
   const r = await fetch("/api/workflows", {
     method: "POST",
