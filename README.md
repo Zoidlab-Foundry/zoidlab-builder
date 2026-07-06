@@ -1,4 +1,8 @@
-# ZoidLab · AI Workflow Builder
+<p align="center">
+  <img src="frontend/public/logo.svg" alt="ZoidLab Builder" width="128" />
+</p>
+
+<h1 align="center">ZoidLab · AI Workflow Builder</h1>
 
 Visual orchestration platform for Nyquest — drag AI/logic/integration nodes onto a
 canvas, connect them into a DAG, configure, run with live execution highlighting, and

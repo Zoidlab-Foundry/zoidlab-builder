@@ -21,6 +21,7 @@ import ConfigPanel from "../components/ConfigPanel";
 import Flowsmith from "../components/Flowsmith";
 import ContextMenu, { type MenuState, type MenuItem } from "../components/ContextMenu";
 import Tour from "../components/Tour";
+import Logo from "../components/Logo";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
 
@@ -152,10 +153,7 @@ function Builder() {
     <div className="flex h-screen w-screen flex-col bg-bg">
       {/* top bar */}
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel2 px-4">
-        <div className="flex items-center gap-2 text-[15px] font-light tracking-[0.2em] text-ink">
-          ZOID<span className="font-bold text-cy">LAB</span>
-          <span className="ml-1 rounded bg-vi/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-ind">BUILDER</span>
-        </div>
+        <Logo />
         <input
           value={s.name}
           onChange={(e) => s.setName(e.target.value)}
