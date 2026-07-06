@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/logo.svg" alt="ZoidLab Builder" width="128" />
+  <img src="frontend/public/logo-hero.png" alt="ZoidLab Builder" width="520" />
 </p>
 
 <h1 align="center">ZoidLab · AI Workflow Builder</h1>
