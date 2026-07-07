@@ -45,6 +45,26 @@ export async function loadWorkflow(id: string): Promise<Workflow> {
   return r.json();
 }
 
+export async function deleteWorkflow(id: string) {
+  await fetch(`/api/workflows/${id}`, { method: "DELETE" });
+}
+
+export async function renameWorkflow(id: string, name: string) {
+  const r = await fetch(`/api/workflows/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) throw new Error("Rename failed");
+  return r.json();
+}
+
+export async function cloneWorkflow(id: string): Promise<{ id: string; name: string }> {
+  const r = await fetch(`/api/workflows/${id}/clone`, { method: "POST" });
+  if (!r.ok) throw new Error("Clone failed");
+  return r.json();
+}
+
 export type RunEvent = {
   type: "start" | "node" | "done" | "error";
   nodeId?: string;

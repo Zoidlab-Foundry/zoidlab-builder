@@ -59,6 +59,25 @@ def delete_workflow(wid: str):
     return {"ok": True}
 
 
+class RenameRequest(BaseModel):
+    name: str
+
+
+@app.patch("/api/workflows/{wid}")
+def rename_workflow(wid: str, req: RenameRequest):
+    if not db.get_workflow(wid):
+        raise HTTPException(404, "Workflow not found")
+    return db.rename_workflow(wid, req.name.strip() or "Untitled workflow")
+
+
+@app.post("/api/workflows/{wid}/clone")
+def clone_workflow(wid: str):
+    r = db.clone_workflow(wid)
+    if not r:
+        raise HTTPException(404, "Workflow not found")
+    return r
+
+
 class GenerateRequest(BaseModel):
     prompt: str
     model: str | None = None

@@ -13,7 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useStore } from "../lib/store";
-import { fetchModels, saveWorkflow, runWorkflow } from "../lib/api";
+import { fetchModels, saveWorkflow, runWorkflow, loadWorkflow } from "../lib/api";
 import { defByType } from "../lib/catalog";
 import WorkflowNode from "../components/WorkflowNode";
 import NodeLibrary from "../components/NodeLibrary";
@@ -22,6 +22,7 @@ import Flowsmith from "../components/Flowsmith";
 import ContextMenu, { type MenuState, type MenuItem } from "../components/ContextMenu";
 import Tour from "../components/Tour";
 import Logo from "../components/Logo";
+import WorkflowsModal from "../components/WorkflowsModal";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
 
@@ -37,6 +38,42 @@ function Builder() {
   const [flowsmithOpen, setFlowsmithOpen] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
+  const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // debounced auto-save — skips the empty starter scaffold
+  useEffect(() => {
+    const meaningful = s.nodes.length > 2 || s.name !== "Untitled workflow";
+    if (!meaningful) return;
+    setSaveStatus("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await saveWorkflow(s.toWorkflow());
+        setSaveStatus("saved");
+      } catch {
+        setSaveStatus("error");
+      }
+    }, 1400);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.nodes, s.edges, s.name]);
+
+  const openWorkflow = async (id: string) => {
+    try {
+      const wf = await loadWorkflow(id);
+      s.loadWorkflow(wf);
+      setSaveStatus("saved");
+      setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 60);
+    } catch {
+      flash("Could not open workflow");
+    }
+  };
+  const newWorkflow = () => {
+    s.reset();
+    setSaveStatus("idle");
+  };
 
   // instructional mode auto-opens once for first-time users
   useEffect(() => {
@@ -108,15 +145,6 @@ function Builder() {
     [screenToFlowPosition, s]
   );
 
-  const onSave = async () => {
-    try {
-      await saveWorkflow(s.toWorkflow());
-      flash("Workflow saved");
-    } catch {
-      flash("Save failed");
-    }
-  };
-
   const onRun = async () => {
     if (s.running) return;
     s.clearRun();
@@ -154,11 +182,30 @@ function Builder() {
       {/* top bar */}
       <header className="flex h-14 shrink-0 items-center gap-4 border-b border-line bg-panel2 px-4">
         <Logo />
+        <div className="ml-1 flex items-center gap-1">
+          <button
+            onClick={() => setWorkflowsOpen(true)}
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="Open workflow"
+          >
+            ⊞ Open
+          </button>
+          <button
+            onClick={newWorkflow}
+            className="rounded-lg border border-line px-2.5 py-1.5 text-[13px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="New workflow"
+          >
+            ＋
+          </button>
+        </div>
         <input
           value={s.name}
           onChange={(e) => s.setName(e.target.value)}
-          className="w-64 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[13px] text-ink outline-none hover:border-line focus:border-cy"
+          className="w-56 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[13px] text-ink outline-none hover:border-line focus:border-cy"
         />
+        <span className="text-[11px] tabular-nums text-dim/70">
+          {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "✓ Saved" : saveStatus === "error" ? "Save failed" : ""}
+        </span>
         <div className="ml-auto flex items-center gap-2">
           <span className="mr-1 text-[11px] text-dim">{s.models.length ? `${s.models.length} models` : "connecting…"}</span>
           <button
@@ -175,9 +222,6 @@ function Builder() {
             className="rounded-lg border border-vi/40 bg-vi/10 px-4 py-1.5 text-[12px] font-medium text-ind hover:bg-vi/20"
           >
             ✦ Flowsmith
-          </button>
-          <button onClick={onSave} className="rounded-lg border border-line px-4 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink">
-            Save
           </button>
           <button
             data-tour="run"
@@ -246,6 +290,13 @@ function Builder() {
 
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       <Tour open={tourOpen} onClose={closeTour} />
+      <WorkflowsModal
+        open={workflowsOpen}
+        onClose={() => setWorkflowsOpen(false)}
+        onOpen={openWorkflow}
+        onNew={newWorkflow}
+        currentId={s.workflowId}
+      />
     </div>
   );
 }

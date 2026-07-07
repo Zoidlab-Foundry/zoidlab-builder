@@ -2,6 +2,7 @@
 without touching callers (all access goes through these functions)."""
 import os
 import json
+import uuid
 import sqlite3
 import datetime
 
@@ -64,3 +65,24 @@ def save_workflow(wf: dict):
 def delete_workflow(wid):
     with _conn() as c:
         c.execute("DELETE FROM workflows WHERE id=?", (wid,))
+
+
+def rename_workflow(wid, name):
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    with _conn() as c:
+        c.execute("UPDATE workflows SET name=?, updated_at=? WHERE id=?", (name, now, wid))
+    return {"id": wid, "name": name, "updated_at": now}
+
+
+def clone_workflow(wid):
+    src = get_workflow(wid)
+    if not src:
+        return None
+    new = {
+        "id": "wf_" + uuid.uuid4().hex[:8],
+        "name": src.get("name", "Untitled") + " (copy)",
+        "nodes": src.get("nodes", []),
+        "edges": src.get("edges", []),
+    }
+    save_workflow(new)
+    return {"id": new["id"], "name": new["name"]}
