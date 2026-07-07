@@ -107,5 +107,76 @@ async def exec_node(node, ctx):
             out = r.text
         return {"output": out, "meta": f"{method} {r.status_code}"}
 
+    if t == "webhook":
+        return {"output": ctx.get("trigger") or {}, "meta": "webhook trigger"}
+
+    if t == "variable":
+        name = data.get("name") or "var"
+        val = render(data.get("value", ""), ctx)
+        ctx["vars"][name] = val
+        return {"output": val, "meta": f"set {name}"}
+
+    if t == "summarizer":
+        model = data.get("model") or DEFAULT_MODEL
+        guide = {
+            "one line": "in a single sentence",
+            "short": "in 2-3 sentences",
+            "detailed": "in a thorough paragraph",
+        }.get(data.get("length", "short"), "briefly")
+        out, usage = await chat(
+            model,
+            [{"role": "system", "content": f"Summarize the user's text {guide}. Output only the summary."},
+             {"role": "user", "content": _as_text(incoming) or "(no input)"}],
+            temperature=0.3, max_tokens=600,
+        )
+        return {"output": out, "tokens": usage.get("total_tokens"), "meta": f"summarized · {model}"}
+
+    if t == "email":
+        to = render(data.get("to", ""), ctx)
+        envelope = {
+            "to": to,
+            "subject": render(data.get("subject", ""), ctx),
+            "body": render(data.get("body", ""), ctx),
+        }
+        # dry-run: the builder composes the message; wire a sender to deliver it
+        return {"output": envelope, "meta": f"composed → {to or '(no recipient)'} · dry-run"}
+
+    if t == "switch":
+        mode = data.get("mode", "contains")
+        cases = [c.strip() for c in str(data.get("cases", "")).splitlines() if c.strip()]
+        subject = _as_text(incoming)
+        matched = "default"
+        for c in cases:
+            if (mode == "equals" and subject.strip().lower() == c.lower()) or \
+               (mode != "equals" and c.lower() in subject.lower()):
+                matched = c
+                break
+        return {"output": incoming, "branch": matched, "meta": f"→ {matched}"}
+
+    if t == "foreach":
+        model = data.get("model") or DEFAULT_MODEL
+        raw = render(data.get("over", ""), ctx) if data.get("over") else incoming
+        items = None
+        if isinstance(raw, list):
+            items = raw
+        elif isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+                items = parsed if isinstance(parsed, list) else None
+            except Exception:
+                items = None
+        if items is None:
+            items = [ln for ln in _as_text(raw).splitlines() if ln.strip()]
+        items = items[:20]  # bound the fan-out
+        results = []
+        for it in items:
+            local = dict(ctx)
+            local["item"] = it
+            p = render(data.get("prompt", "{{item}}"), local)
+            out, _ = await chat(model, [{"role": "user", "content": p or _as_text(it)}],
+                                temperature=0.4, max_tokens=int(data.get("max_tokens", 300)))
+            results.append(out)
+        return {"output": results, "meta": f"mapped {len(results)} item(s)"}
+
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}

@@ -23,6 +23,8 @@ import ContextMenu, { type MenuState, type MenuItem } from "../components/Contex
 import Tour from "../components/Tour";
 import Logo from "../components/Logo";
 import WorkflowsModal from "../components/WorkflowsModal";
+import NewWorkflowModal from "../components/NewWorkflowModal";
+import { type Template } from "../lib/templates";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
 
@@ -39,6 +41,7 @@ function Builder() {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -73,6 +76,20 @@ function Builder() {
   const newWorkflow = () => {
     s.reset();
     setSaveStatus("idle");
+  };
+  const blankWorkflow = () => { newWorkflow(); setTemplatesOpen(false); };
+  const useTemplate = (t: Template) => {
+    const wf: Workflow = {
+      id: "wf_" + Math.random().toString(36).slice(2, 9),
+      name: t.name,
+      nodes: t.nodes,
+      edges: t.edges,
+    };
+    s.loadWorkflow(wf);
+    setTemplatesOpen(false);
+    setSaveStatus("saved");
+    flash("Loaded “" + t.name + "” template");
+    setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 60);
   };
 
   // instructional mode auto-opens once for first-time users
@@ -191,7 +208,7 @@ function Builder() {
             ⊞ Open
           </button>
           <button
-            onClick={newWorkflow}
+            onClick={() => setTemplatesOpen(true)}
             className="rounded-lg border border-line px-2.5 py-1.5 text-[13px] font-medium text-dim hover:border-cy hover:text-ink"
             title="New workflow"
           >
@@ -294,8 +311,14 @@ function Builder() {
         open={workflowsOpen}
         onClose={() => setWorkflowsOpen(false)}
         onOpen={openWorkflow}
-        onNew={newWorkflow}
+        onNew={() => setTemplatesOpen(true)}
         currentId={s.workflowId}
+      />
+      <NewWorkflowModal
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        onBlank={blankWorkflow}
+        onTemplate={useTemplate}
       />
     </div>
   );

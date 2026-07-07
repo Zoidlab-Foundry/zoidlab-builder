@@ -25,6 +25,7 @@ export interface NodeDef {
   description: string;
   hasInput: boolean;
   outputs: { id: string | null; label?: string; color?: string }[];
+  dynamicOutputs?: boolean;  // outputs derived from config (e.g. Switch cases)
   fields: Field[];
 }
 
@@ -116,9 +117,96 @@ export const NODE_DEFS: NodeDef[] = [
     outputs: [],
     fields: [],
   },
+  {
+    type: "webhook",
+    label: "Webhook",
+    category: "Flow",
+    accent: "#4fd1c5",
+    glyph: "⇥",
+    description: "Inbound trigger. Starts the workflow with the request payload.",
+    hasInput: false,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "path", label: "Listen path", type: "text", default: "/hook/my-workflow", hint: "Where this workflow will accept requests once deployed." },
+    ],
+  },
+  {
+    type: "summarizer",
+    label: "Summarizer",
+    category: "AI Utilities",
+    accent: "#7c5cfc",
+    glyph: "❡",
+    description: "Condenses the incoming text with a model.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "model", label: "Model", type: "select", options: [], default: "anthropic/claude-sonnet-5", hint: "From the Nyquest relay." },
+      { key: "length", label: "Length", type: "select", options: ["one line", "short", "detailed"], default: "short" },
+    ],
+  },
+  {
+    type: "switch",
+    label: "Switch",
+    category: "Logic",
+    accent: "#f4b860",
+    glyph: "⋔",
+    description: "Multi-way branch. Routes to the first matching case, else default.",
+    hasInput: true,
+    dynamicOutputs: true,
+    outputs: [],
+    fields: [
+      { key: "mode", label: "Match", type: "select", options: ["contains", "equals"], default: "contains" },
+      { key: "cases", label: "Cases (one per line)", type: "textarea", default: "billing\nbug\nsales", hint: "Each line becomes an output handle. A 'default' handle catches the rest." },
+    ],
+  },
+  {
+    type: "foreach",
+    label: "For Each",
+    category: "Logic",
+    accent: "#f4b860",
+    glyph: "⟳",
+    description: "Runs a prompt over each item in a list and collects the results.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "over", label: "List", type: "text", default: "{{previous.output}}", hint: "An expression resolving to a JSON array (or newline list)." },
+      { key: "model", label: "Model", type: "select", options: [], default: "anthropic/claude-haiku-4.5" },
+      { key: "prompt", label: "Per-item prompt", type: "textarea", default: "Process this item: {{item}}", hint: "Use {{item}} for the current element." },
+      { key: "max_tokens", label: "Max tokens / item", type: "number", default: 300, min: 1, max: 4000 },
+    ],
+  },
+  {
+    type: "variable",
+    label: "Variable",
+    category: "Data",
+    accent: "#818cf8",
+    glyph: "𝑥",
+    description: "Sets a variable other nodes can read via {{vars.name}}.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "name", label: "Name", type: "text", placeholder: "customerName" },
+      { key: "value", label: "Value", type: "textarea", default: "{{previous.output}}", hint: "Supports {{expressions}}." },
+    ],
+  },
+  {
+    type: "email",
+    label: "Email",
+    category: "Integrations",
+    accent: "#22d3ee",
+    glyph: "✉",
+    description: "Composes an email from the flow. Dry-run until a sender is configured.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "to", label: "To", type: "text", placeholder: "{{trigger.email}}" },
+      { key: "subject", label: "Subject", type: "text", placeholder: "Re: your request" },
+      { key: "body", label: "Body", type: "textarea", default: "{{previous.output}}" },
+    ],
+  },
 ];
 
-export const CATEGORIES = ["Flow", "AI Models", "Prompts", "Logic", "Integrations"];
+export const CATEGORIES = ["Flow", "AI Models", "AI Utilities", "Prompts", "Logic", "Data", "Integrations"];
 
 export const defByType = (t: string) => NODE_DEFS.find((d) => d.type === t);
 

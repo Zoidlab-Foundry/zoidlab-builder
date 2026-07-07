@@ -19,17 +19,31 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
   const ring = run ? STATUS_RING[run.status] : selected ? def.accent : "#2a2d3a";
   const pulsing = run?.status === "running";
 
+  // Switch derives its output handles from the configured cases.
+  const parseCases = (v: any) => String(v || "").split("\n").map((s) => s.trim()).filter(Boolean);
+  const outs = def.dynamicOutputs
+    ? [...parseCases(config.cases).map((v) => ({ id: v, label: v, color: "#818cf8" })), { id: "default", label: "default", color: "#9aa0b0" }]
+    : def.outputs;
+
   // a compact subtitle from the most salient config field
   const subtitle =
     nodeType === "llm" ? config.model || "model" :
+    nodeType === "summarizer" ? `${config.model || "model"} · ${config.length || "short"}` :
     nodeType === "decision" ? `${config.mode || "contains"} "${config.value || ""}"` :
+    nodeType === "switch" ? `${parseCases(config.cases).length} cases` :
+    nodeType === "foreach" ? `over ${config.over || "list"}` :
+    nodeType === "variable" ? `${config.name || "name"} =` :
+    nodeType === "email" ? `to ${config.to || "…"}` :
+    nodeType === "webhook" ? (config.path || "/hook") :
     nodeType === "http" ? `${config.method || "GET"} ${config.url ? "·" : ""} ${(config.url || "").slice(0, 22)}` :
     nodeType === "prompt" ? (config.template || "").slice(0, 40) + "…" :
     def.description.slice(0, 40);
 
+  const minHeight = outs.length > 2 ? 30 + outs.length * 22 : undefined;
+
   return (
     <div
-      style={{ borderColor: ring, boxShadow: pulsing ? `0 0 0 3px ${ring}33` : selected ? `0 0 0 2px ${def.accent}44` : "none" }}
+      style={{ borderColor: ring, boxShadow: pulsing ? `0 0 0 3px ${ring}33` : selected ? `0 0 0 2px ${def.accent}44` : "none", minHeight }}
       className="relative w-[210px] rounded-xl border bg-panel transition-shadow"
     >
       {def.hasInput && (
@@ -70,12 +84,12 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
       )}
 
       {/* outputs */}
-      {def.outputs.length <= 1 &&
-        def.outputs.map((o) => (
+      {outs.length <= 1 &&
+        outs.map((o) => (
           <Handle key={o.id || "out"} type="source" position={Position.Right} style={{ background: def.accent }} />
         ))}
-      {def.outputs.length > 1 &&
-        def.outputs.map((o, i) => (
+      {outs.length > 1 &&
+        outs.map((o, i) => (
           <Handle
             key={o.id}
             id={o.id || undefined}
