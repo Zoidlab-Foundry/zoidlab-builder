@@ -59,7 +59,7 @@ async def exec_node(node, ctx):
         return {"output": render(template, ctx), "meta": "rendered"}
 
     if t == "llm":
-        model = data.get("model") or DEFAULT_MODEL
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
         system = render(data.get("system", ""), ctx)
         # user message: explicit prompt template if given, else the upstream output
         user = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
@@ -110,6 +110,13 @@ async def exec_node(node, ctx):
     if t == "webhook":
         return {"output": ctx.get("trigger") or {}, "meta": "webhook trigger"}
 
+    if t == "model":
+        var = data.get("var") or "model"
+        m = render(str(data.get("model") or "auto"), ctx) or "auto"
+        ctx["vars"][var] = m
+        # transparent inline node: pass input through so it can sit mid-flow
+        return {"output": incoming if incoming is not None else m, "meta": f"{var} = {m}"}
+
     if t == "variable":
         name = data.get("name") or "var"
         val = render(data.get("value", ""), ctx)
@@ -117,7 +124,7 @@ async def exec_node(node, ctx):
         return {"output": val, "meta": f"set {name}"}
 
     if t == "summarizer":
-        model = data.get("model") or DEFAULT_MODEL
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
         guide = {
             "one line": "in a single sentence",
             "short": "in 2-3 sentences",
@@ -154,7 +161,7 @@ async def exec_node(node, ctx):
         return {"output": incoming, "branch": matched, "meta": f"→ {matched}"}
 
     if t == "foreach":
-        model = data.get("model") or DEFAULT_MODEL
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
         raw = render(data.get("over", ""), ctx) if data.get("over") else incoming
         items = None
         if isinstance(raw, list):

@@ -74,6 +74,20 @@ export const NODE_DEFS: NodeDef[] = [
     ],
   },
   {
+    type: "model",
+    label: "Model",
+    category: "AI Models",
+    accent: "#7c5cfc",
+    glyph: "◇",
+    description: "Picks a model (or Auto). Downstream AI nodes can use {{vars.model}}.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "model", label: "Model", type: "select", options: [], default: "auto", hint: "Auto lets the Nyquest relay pick the best model per request." },
+      { key: "var", label: "Store as", type: "text", default: "model", hint: "Referenced downstream as {{vars.<name>}} — e.g. an LLM node's model." },
+    ],
+  },
+  {
     type: "decision",
     label: "Decision",
     category: "Logic",

@@ -28,12 +28,24 @@ export default function ConfigPanel() {
     const common = "w-full rounded-lg border border-line bg-bg px-3 py-2 text-[13px] text-ink outline-none focus:border-cy";
 
     if (f.type === "select") {
-      const opts = f.key === "model" && models.length ? models : f.options || [];
+      let opts: { value: string; label: string }[];
+      if (f.key === "model") {
+        const base = models.length ? models : (f.options || []);
+        // "From Model node" lets an AI node inherit whatever a Model node selected.
+        const specials = node.data.nodeType === "model" ? [] : [{ value: "{{vars.model}}", label: "↳ From Model node" }];
+        opts = [
+          ...specials,
+          ...base.map((m) => ({ value: m, label: m === "auto" ? "Auto — Nyquest routes" : m })),
+        ];
+      } else {
+        opts = (f.options || []).map((o) => ({ value: o, label: o }));
+      }
+      const known = opts.some((o) => o.value === val);
       return (
         <select className={common} value={val} onChange={(e) => updateConfig(node.id, { [f.key]: e.target.value })}>
-          {f.key === "model" && !opts.includes(val) && val && <option value={val}>{val}</option>}
+          {!known && val ? <option value={val}>{val}</option> : null}
           {opts.map((o) => (
-            <option key={o} value={o}>{o}</option>
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
       );

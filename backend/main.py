@@ -32,7 +32,8 @@ def health():
 
 @app.get("/api/models")
 async def models():
-    return {"models": await list_models()}
+    # "auto" = let the Nyquest relay route to the best model
+    return {"models": ["auto", *await list_models()]}
 
 
 @app.get("/api/workflows")

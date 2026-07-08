@@ -28,6 +28,7 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
   // a compact subtitle from the most salient config field
   const subtitle =
     nodeType === "llm" ? config.model || "model" :
+    nodeType === "model" ? `${config.var || "model"} = ${config.model || "auto"}` :
     nodeType === "summarizer" ? `${config.model || "model"} · ${config.length || "short"}` :
     nodeType === "decision" ? `${config.mode || "contains"} "${config.value || ""}"` :
     nodeType === "switch" ? `${parseCases(config.cases).length} cases` :
