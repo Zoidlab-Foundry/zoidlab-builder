@@ -65,6 +65,43 @@ export async function cloneWorkflow(id: string): Promise<{ id: string; name: str
   return r.json();
 }
 
+export interface VersionMeta {
+  id: string;
+  name: string;
+  label: string | null;
+  created_at: string;
+  nodes: number;
+  edges: number;
+}
+
+export async function listVersions(id: string): Promise<VersionMeta[]> {
+  const r = await fetch(`/api/workflows/${id}/versions`);
+  if (!r.ok) return [];
+  return (await r.json()).versions || [];
+}
+
+export async function snapshotWorkflow(id: string, label: string) {
+  const r = await fetch(`/api/workflows/${id}/snapshot`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label }),
+  });
+  if (!r.ok) throw new Error("Snapshot failed");
+  return r.json();
+}
+
+export async function getVersion(vid: string): Promise<Workflow> {
+  const r = await fetch(`/api/versions/${vid}`);
+  if (!r.ok) throw new Error("Version not found");
+  return r.json();
+}
+
+export async function restoreVersion(vid: string): Promise<Workflow> {
+  const r = await fetch(`/api/versions/${vid}/restore`, { method: "POST" });
+  if (!r.ok) throw new Error("Restore failed");
+  return r.json();
+}
+
 export type RunEvent = {
   type: "start" | "node" | "done" | "error";
   nodeId?: string;

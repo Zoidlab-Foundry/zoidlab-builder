@@ -78,6 +78,40 @@ def clone_workflow(wid: str):
     return r
 
 
+# --- versioning ---
+@app.get("/api/workflows/{wid}/versions")
+def list_versions(wid: str):
+    return {"versions": db.list_versions(wid)}
+
+
+class SnapshotRequest(BaseModel):
+    label: str | None = None
+
+
+@app.post("/api/workflows/{wid}/snapshot")
+def snapshot_workflow(wid: str, req: SnapshotRequest):
+    r = db.snapshot_workflow(wid, (req.label or "").strip())
+    if not r:
+        raise HTTPException(404, "Workflow not found")
+    return r
+
+
+@app.get("/api/versions/{vid}")
+def get_version(vid: str):
+    v = db.get_version(vid)
+    if not v:
+        raise HTTPException(404, "Version not found")
+    return v
+
+
+@app.post("/api/versions/{vid}/restore")
+def restore_version(vid: str):
+    wf = db.restore_version(vid)
+    if not wf:
+        raise HTTPException(404, "Version not found")
+    return wf
+
+
 class GenerateRequest(BaseModel):
     prompt: str
     model: str | None = None

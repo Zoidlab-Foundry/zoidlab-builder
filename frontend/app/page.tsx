@@ -24,6 +24,7 @@ import Tour from "../components/Tour";
 import Logo from "../components/Logo";
 import WorkflowsModal from "../components/WorkflowsModal";
 import NewWorkflowModal from "../components/NewWorkflowModal";
+import HistoryModal from "../components/HistoryModal";
 import { type Template } from "../lib/templates";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
@@ -42,6 +43,7 @@ function Builder() {
   const [tourOpen, setTourOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -214,6 +216,13 @@ function Builder() {
           >
             ＋
           </button>
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="Version history"
+          >
+            ⟲ History
+          </button>
         </div>
         <input
           value={s.name}
@@ -319,6 +328,18 @@ function Builder() {
         onClose={() => setTemplatesOpen(false)}
         onBlank={blankWorkflow}
         onTemplate={useTemplate}
+      />
+      <HistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        workflowId={s.workflowId}
+        current={s.toWorkflow()}
+        onRestore={(wf) => {
+          s.loadWorkflow(wf);
+          setSaveStatus("saved");
+          flash("Restored a previous version");
+          setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 60);
+        }}
       />
     </div>
   );
