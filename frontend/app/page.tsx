@@ -44,6 +44,15 @@ function Builder() {
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [user, setUser] = useState<{ email: string; tier: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/whoami").then((r) => (r.ok ? r.json() : null)).then((u) => u && setUser(u)).catch(() => {});
+  }, []);
+  const logout = async () => {
+    await fetch("/api/session", { method: "DELETE" }).catch(() => {});
+    location.href = "/gate";
+  };
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -257,6 +266,13 @@ function Builder() {
           >
             {s.running ? "Running…" : "▸ Run"}
           </button>
+          {user && (
+            <div className="ml-2 flex items-center gap-2 border-l border-line pl-3">
+              <span className="hidden text-[11px] text-dim sm:inline">{user.email}</span>
+              <span className="rounded bg-vi/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-ind">{user.tier}</span>
+              <button onClick={logout} title="Sign out" className="rounded-md px-2 py-1 text-[11px] text-dim hover:bg-line hover:text-ink">Sign out</button>
+            </div>
+          )}
         </div>
       </header>
 

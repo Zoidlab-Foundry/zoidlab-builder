@@ -1,28 +1,32 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { jwtVerify } from "jose";
 
-// Interim access gate (HTTP Basic Auth). Replace with Cloudflare Access
-// once a zoidlab.ai-scoped token is available. Credentials from env.
-const USER = process.env.BUILDER_USER || "zoid";
-const PASS = process.env.BUILDER_PASS || "changeme";
+// Access gate: requires a valid ZoidLab session cookie, minted only after a
+// Nyquest Pro/Teams user is verified via /api/session. Public paths below are
+// the ones needed to establish that session.
+const SECRET = new TextEncoder().encode(process.env.BUILDER_SESSION_SECRET || "dev-secret-change-me");
+const PUBLIC_PREFIXES = ["/enter", "/gate", "/api/session"];
 
-export function middleware(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Basic ")) {
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
+
+  const cookie = req.cookies.get("zb_session")?.value;
+  if (cookie) {
     try {
-      const [u, p] = atob(auth.slice(6)).split(":");
-      if (u === USER && p === PASS) return NextResponse.next();
+      await jwtVerify(cookie, SECRET);
+      return NextResponse.next();
     } catch {
-      /* fallthrough */
+      /* invalid/expired — fall through to gate */
     }
   }
-  return new NextResponse("Authentication required", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="ZoidLab Builder", charset="UTF-8"' },
-  });
+  const url = req.nextUrl.clone();
+  url.pathname = "/gate";
+  url.search = "";
+  return NextResponse.redirect(url);
 }
 
 export const config = {
-  // gate everything except Next's static assets
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|logo.svg|logo-hero.png).*)"],
 };
