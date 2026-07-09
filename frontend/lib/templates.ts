@@ -32,9 +32,9 @@ export const TEMPLATES: Template[] = [
       { id: "email", type: "prompt", position: { x: 300, y: 200 }, data: { template: SAMPLE_EMAIL } },
       { id: "classify", type: "llm", position: { x: 560, y: 200 }, data: { model: "anthropic/claude-haiku-4.5", system: "Reply with exactly one lowercase word — billing, bug, or sales — classifying this support email.", prompt: "{{nodes.email.output}}", temperature: 0, max_tokens: 5 } },
       { id: "route", type: "switch", position: { x: 820, y: 200 }, data: { mode: "contains", cases: "billing\nbug\nsales" } },
-      { id: "billing", type: "llm", position: { x: 1090, y: 60 }, data: { model: "anthropic/claude-sonnet-5", system: "You are a billing specialist. Write a warm, specific reply that resolves the customer's billing issue.", prompt: "{{nodes.email.output}}", max_tokens: 400 } },
-      { id: "bug", type: "llm", position: { x: 1090, y: 210 }, data: { model: "anthropic/claude-sonnet-5", system: "You are a support engineer. Acknowledge the bug and give clear next steps.", prompt: "{{nodes.email.output}}", max_tokens: 400 } },
-      { id: "sales", type: "llm", position: { x: 1090, y: 360 }, data: { model: "anthropic/claude-sonnet-5", system: "You are a sales rep. Reply enthusiastically and propose a quick demo.", prompt: "{{nodes.email.output}}", max_tokens: 400 } },
+      { id: "billing", type: "llm", position: { x: 1090, y: 60 }, data: { model: "auto", system: "You are a billing specialist. Write a warm, specific reply that resolves the customer's billing issue.", prompt: "{{nodes.email.output}}", max_tokens: 400 } },
+      { id: "bug", type: "llm", position: { x: 1090, y: 210 }, data: { model: "auto", system: "You are a support engineer. Acknowledge the bug and give clear next steps.", prompt: "{{nodes.email.output}}", max_tokens: 400 } },
+      { id: "sales", type: "llm", position: { x: 1090, y: 360 }, data: { model: "auto", system: "You are a sales rep. Reply enthusiastically and propose a quick demo.", prompt: "{{nodes.email.output}}", max_tokens: 400 } },
       { id: "end", type: "end", position: { x: 1360, y: 210 }, data: {} },
     ],
     edges: [
