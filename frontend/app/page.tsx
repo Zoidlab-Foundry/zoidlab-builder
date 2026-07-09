@@ -303,11 +303,15 @@ function Builder() {
             minZoom={0.2}
           >
             <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#2a2d3a" />
-            <Controls className="!bg-panel" />
+            <Controls showInteractive={false} />
             <MiniMap
               pannable zoomable
-              nodeColor={(n) => defByType((n.data as any)?.nodeType)?.accent || "#3a3d4c"}
-              maskColor="rgba(20,22,31,0.7)"
+              bgColor="#181b27"
+              nodeColor={(n) => defByType((n.data as any)?.nodeType)?.accent || "#565b6e"}
+              nodeStrokeColor="#14161f"
+              maskColor="rgba(20,22,31,0.78)"
+              maskStrokeColor="#4fd1c5"
+              maskStrokeWidth={1.5}
             />
           </ReactFlow>
 

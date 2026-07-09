@@ -22,15 +22,52 @@ body {
   border: 2px solid #14161f;
   background: #7c5cfc;
 }
-.react-flow__controls { box-shadow: none; }
-.react-flow__controls-button {
-  background: #1e2130;
-  border-bottom: 1px solid #2a2d3a;
-  color: #9aa0b0;
-  fill: #9aa0b0;
+/* React Flow theme variables (v12) — dark controls + minimap */
+.react-flow {
+  --xy-controls-button-background-color: #1e2130;
+  --xy-controls-button-background-color-hover: #2a2d3a;
+  --xy-controls-button-color: #e8e9ef;
+  --xy-controls-button-color-hover: #4fd1c5;
+  --xy-controls-button-border-color: #2a2d3a;
+  --xy-minimap-background-color: #181b27;
+  --xy-minimap-mask-background-color: rgba(20, 22, 31, 0.78);
 }
-.react-flow__controls-button:hover { background: #2a2d3a; }
-.react-flow__minimap { background: #181b27; border-radius: 10px; }
+.react-flow__controls {
+  border: 1px solid #3a3d4c;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  background: #1e2130 !important;
+  border-bottom: 1px solid #2a2d3a !important;
+  color: #e8e9ef !important;
+}
+.react-flow__controls-button svg { fill: #e8e9ef; max-width: 14px; max-height: 14px; }
+.react-flow__controls-button:hover { background: #2a2d3a !important; }
+.react-flow__controls-button:hover svg { fill: #4fd1c5; }
+.react-flow__minimap {
+  position: relative;
+  background: #181b27 !important;
+  border: 1px solid #3a3d4c;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.react-flow__minimap svg { background: #181b27; }
+.react-flow__minimap::after {
+  content: "MAP";
+  position: absolute;
+  top: 5px;
+  left: 9px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #9aa0b0;
+  pointer-events: none;
+}
 .react-flow__attribution { display: none; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
