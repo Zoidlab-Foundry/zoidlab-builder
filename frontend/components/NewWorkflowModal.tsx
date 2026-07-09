@@ -23,7 +23,7 @@ export default function NewWorkflowModal({
           <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-[13px] text-dim hover:bg-line hover:text-ink">✕</button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 p-5">
+        <div className="grid max-h-[64vh] grid-cols-2 gap-3 overflow-y-auto p-5">
           <button
             onClick={onBlank}
             className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-line bg-panel2 p-4 text-left transition-colors hover:border-cy/60"
