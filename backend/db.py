@@ -1,5 +1,9 @@
 """SQLite persistence for workflows. Lean by design — swaps to Postgres later
-without touching callers (all access goes through these functions)."""
+without touching callers (all access goes through these functions).
+
+Ownership: every workflow row carries `owner` (the Nyquest user id from the
+session). All reads/writes are scoped to the caller's owner; `owner=None`
+(sessionless/local) is its own sandbox — the public path is always gated."""
 import os
 import json
 import uuid
@@ -38,19 +42,32 @@ def init():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_versions_wf ON versions(workflow_id, created_at)")
+        # ownership migration (idempotent)
+        cols = [r["name"] for r in c.execute("PRAGMA table_info(workflows)")]
+        if "owner" not in cols:
+            c.execute("ALTER TABLE workflows ADD COLUMN owner TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_workflows_owner ON workflows(owner, updated_at)")
 
 
-def list_workflows():
+def _owned(c, wid, owner):
+    """The workflow row iff it belongs to `owner` (NULL-safe)."""
+    return c.execute(
+        "SELECT * FROM workflows WHERE id=? AND owner IS ?", (wid, owner)
+    ).fetchone()
+
+
+def list_workflows(owner=None):
     with _conn() as c:
         rows = c.execute(
-            "SELECT id, name, updated_at FROM workflows ORDER BY updated_at DESC"
+            "SELECT id, name, updated_at FROM workflows WHERE owner IS ? ORDER BY updated_at DESC",
+            (owner,),
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_workflow(wid):
+def get_workflow(wid, owner=None):
     with _conn() as c:
-        row = c.execute("SELECT * FROM workflows WHERE id=?", (wid,)).fetchone()
+        row = _owned(c, wid, owner)
         if not row:
             return None
         g = json.loads(row["graph"])
@@ -63,16 +80,21 @@ def get_workflow(wid):
 AUTO_VERSION_GAP = 120  # seconds — auto-snapshot at most this often per workflow
 
 
-def save_workflow(wf: dict):
+def save_workflow(wf: dict, owner=None):
+    """Upsert scoped to owner. Returns None if the id exists under a different
+    owner (prevents cross-user id collisions/overwrites)."""
     now = datetime.datetime.utcnow().isoformat() + "Z"
     name = wf.get("name", "Untitled workflow")
     graph = json.dumps({"nodes": wf.get("nodes", []), "edges": wf.get("edges", [])})
     with _conn() as c:
+        existing = c.execute("SELECT owner FROM workflows WHERE id=?", (wf["id"],)).fetchone()
+        if existing is not None and existing["owner"] != owner:
+            return None
         c.execute(
-            """INSERT INTO workflows (id, name, graph, updated_at) VALUES (?,?,?,?)
+            """INSERT INTO workflows (id, name, graph, updated_at, owner) VALUES (?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET name=excluded.name,
                  graph=excluded.graph, updated_at=excluded.updated_at""",
-            (wf["id"], name, graph, now),
+            (wf["id"], name, graph, now, owner),
         )
     _maybe_auto_version(wf["id"], name, graph, now)
     return {"id": wf["id"], "updated_at": now}
@@ -93,7 +115,6 @@ def _maybe_auto_version(wid, name, graph, now):
             age = (datetime.datetime.utcnow() - datetime.datetime.fromisoformat(latest["created_at"].rstrip("Z"))).total_seconds()
         except Exception:
             age = AUTO_VERSION_GAP + 1
-        # only throttle consecutive AUTO versions; always keep a fresh point after a labeled one
         if latest["label"] is None and age < AUTO_VERSION_GAP:
             return
     _insert_version(wid, name, graph, None, now)
@@ -107,8 +128,40 @@ def _insert_version(wid, name, graph, label, now):
         )
 
 
-def snapshot_workflow(wid, label):
-    wf = get_workflow(wid)
+def delete_workflow(wid, owner=None):
+    with _conn() as c:
+        if not _owned(c, wid, owner):
+            return False
+        c.execute("DELETE FROM workflows WHERE id=?", (wid,))
+        c.execute("DELETE FROM versions WHERE workflow_id=?", (wid,))
+    return True
+
+
+def rename_workflow(wid, name, owner=None):
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    with _conn() as c:
+        if not _owned(c, wid, owner):
+            return None
+        c.execute("UPDATE workflows SET name=?, updated_at=? WHERE id=?", (name, now, wid))
+    return {"id": wid, "name": name, "updated_at": now}
+
+
+def clone_workflow(wid, owner=None):
+    src = get_workflow(wid, owner)
+    if not src:
+        return None
+    new = {
+        "id": "wf_" + uuid.uuid4().hex[:8],
+        "name": src.get("name", "Untitled") + " (copy)",
+        "nodes": src.get("nodes", []),
+        "edges": src.get("edges", []),
+    }
+    save_workflow(new, owner)
+    return {"id": new["id"], "name": new["name"]}
+
+
+def snapshot_workflow(wid, label, owner=None):
+    wf = get_workflow(wid, owner)
     if not wf:
         return None
     now = datetime.datetime.utcnow().isoformat() + "Z"
@@ -117,8 +170,10 @@ def snapshot_workflow(wid, label):
     return {"ok": True, "created_at": now}
 
 
-def list_versions(wid):
+def list_versions(wid, owner=None):
     with _conn() as c:
+        if not _owned(c, wid, owner):
+            return None
         rows = c.execute(
             "SELECT id, name, label, created_at, graph FROM versions WHERE workflow_id=? ORDER BY created_at DESC",
             (wid,),
@@ -134,9 +189,18 @@ def list_versions(wid):
     return out
 
 
-def get_version(vid):
+def _version_row(vid, owner):
+    """Version row iff its parent workflow belongs to owner."""
     with _conn() as c:
-        r = c.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
+        return c.execute(
+            """SELECT v.* FROM versions v JOIN workflows w ON w.id = v.workflow_id
+               WHERE v.id=? AND w.owner IS ?""",
+            (vid, owner),
+        ).fetchone()
+
+
+def get_version(vid, owner=None):
+    r = _version_row(vid, owner)
     if not r:
         return None
     g = json.loads(r["graph"])
@@ -145,43 +209,13 @@ def get_version(vid):
     return g
 
 
-def restore_version(vid):
-    with _conn() as c:
-        r = c.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
+def restore_version(vid, owner=None):
+    r = _version_row(vid, owner)
     if not r:
         return None
     g = json.loads(r["graph"])
     now = datetime.datetime.utcnow().isoformat() + "Z"
-    # snapshot the pre-restore state's version chain marker, then set current
-    save_workflow({"id": r["workflow_id"], "name": r["name"], "nodes": g.get("nodes", []), "edges": g.get("edges", [])})
+    save_workflow({"id": r["workflow_id"], "name": r["name"], "nodes": g.get("nodes", []), "edges": g.get("edges", [])}, owner)
     _insert_version(r["workflow_id"], r["name"], r["graph"],
                     f"Restored from {r['created_at'][:16].replace('T', ' ')}", now)
-    wf = get_workflow(r["workflow_id"])
-    return wf
-
-
-def delete_workflow(wid):
-    with _conn() as c:
-        c.execute("DELETE FROM workflows WHERE id=?", (wid,))
-        c.execute("DELETE FROM versions WHERE workflow_id=?", (wid,))
-
-
-def rename_workflow(wid, name):
-    now = datetime.datetime.utcnow().isoformat() + "Z"
-    with _conn() as c:
-        c.execute("UPDATE workflows SET name=?, updated_at=? WHERE id=?", (name, now, wid))
-    return {"id": wid, "name": name, "updated_at": now}
-
-
-def clone_workflow(wid):
-    src = get_workflow(wid)
-    if not src:
-        return None
-    new = {
-        "id": "wf_" + uuid.uuid4().hex[:8],
-        "name": src.get("name", "Untitled") + " (copy)",
-        "nodes": src.get("nodes", []),
-        "edges": src.get("edges", []),
-    }
-    save_workflow(new)
-    return {"id": new["id"], "name": new["name"]}
+    return get_workflow(r["workflow_id"], owner)
