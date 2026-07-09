@@ -2,14 +2,27 @@
 All LLM nodes route through here, giving the builder every model Nyquest exposes."""
 import os
 import httpx
+from contextvars import ContextVar
 
 BASE = os.environ.get("NYQUEST_BASE_URL", "https://api.nyquest.ai/v1").rstrip("/")
 KEY = os.environ.get("NYQUEST_API_KEY", "")
 DEFAULT_MODEL = os.environ.get("BUILDER_DEFAULT_MODEL", "anthropic/claude-sonnet-5")
 
+# Per-request relay auth — set to the logged-in user's own key so their wallet
+# is billed. Falls back to the shared KEY (owner) when unset.
+_relay_auth: ContextVar = ContextVar("relay_auth", default=None)
+
+
+def set_relay_auth(value):
+    _relay_auth.set(value or None)
+
+
+def _auth():
+    return _relay_auth.get() or KEY
+
 
 def _headers():
-    h = {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+    h = {"Authorization": f"Bearer {_auth()}", "Content-Type": "application/json"}
     # OpenRouter attribution (harmless on other OpenAI-compatible gateways)
     if "openrouter" in BASE:
         h["HTTP-Referer"] = "https://builder.zoidlab.ai"

@@ -2,15 +2,16 @@
 FastAPI + SQLite + in-process DAG executor. LLM nodes route through the Nyquest relay."""
 import json
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 import db
 from schema import Workflow, RunRequest
 from executor import run_workflow
-from llm import list_models
+from llm import list_models, set_relay_auth
 from flowsmith import generate as flowsmith_generate
+from auth import relay_key_from_cookie
 from pydantic import BaseModel
 
 app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0")
@@ -119,8 +120,9 @@ class GenerateRequest(BaseModel):
 
 
 @app.post("/api/generate")
-async def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest, request: Request):
     """Flowsmith: natural-language description → workflow DAG."""
+    set_relay_auth(relay_key_from_cookie(request.cookies.get("zb_session")))
     try:
         return await flowsmith_generate(req.prompt, req.model)
     except Exception as ex:
@@ -128,11 +130,13 @@ async def generate(req: GenerateRequest):
 
 
 @app.post("/api/run")
-async def run(req: RunRequest):
+async def run(req: RunRequest, request: Request):
     """Execute a workflow, streaming node status events as SSE."""
     wf = req.workflow.model_dump()
+    auth = relay_key_from_cookie(request.cookies.get("zb_session"))
 
     async def gen():
+        set_relay_auth(auth)  # bill the logged-in user's own Nyquest wallet
         try:
             async for ev in run_workflow(wf, req.trigger):
                 yield f"data: {json.dumps(ev)}\n\n"
