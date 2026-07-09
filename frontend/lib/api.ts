@@ -65,6 +65,27 @@ export async function cloneWorkflow(id: string): Promise<{ id: string; name: str
   return r.json();
 }
 
+export interface Deployment {
+  token: string | null;
+  enabled: number;
+  created_at?: string;
+}
+
+export async function getDeployment(id: string): Promise<Deployment | null> {
+  const r = await fetch(`/api/workflows/${id}/deployment`);
+  return r.ok ? r.json() : null;
+}
+
+export async function deployWorkflow(id: string): Promise<Deployment> {
+  const r = await fetch(`/api/workflows/${id}/deploy`, { method: "POST" });
+  if (!r.ok) throw new Error("Deploy failed");
+  return r.json();
+}
+
+export async function undeployWorkflow(id: string) {
+  await fetch(`/api/workflows/${id}/deploy`, { method: "DELETE" });
+}
+
 export interface VersionMeta {
   id: string;
   name: string;

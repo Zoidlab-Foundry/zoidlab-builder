@@ -25,6 +25,7 @@ import Logo from "../components/Logo";
 import WorkflowsModal from "../components/WorkflowsModal";
 import NewWorkflowModal from "../components/NewWorkflowModal";
 import HistoryModal from "../components/HistoryModal";
+import DeployModal from "../components/DeployModal";
 import { type Template } from "../lib/templates";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
@@ -44,6 +45,7 @@ function Builder() {
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
   const [user, setUser] = useState<{ email: string; tier: string } | null>(null);
 
   useEffect(() => {
@@ -266,6 +268,13 @@ function Builder() {
           >
             {s.running ? "Running…" : "▸ Run"}
           </button>
+          <button
+            onClick={() => setDeployOpen(true)}
+            className="rounded-lg border border-cy/40 px-4 py-1.5 text-[12px] font-semibold text-cy hover:bg-cy/10"
+            title="Deploy this workflow as a webhook"
+          >
+            ⚡ Deploy
+          </button>
           {user && (
             <div className="ml-2 flex items-center gap-2 border-l border-line pl-3">
               <span className="hidden text-[11px] text-dim sm:inline">{user.email}</span>
@@ -348,6 +357,12 @@ function Builder() {
         onClose={() => setTemplatesOpen(false)}
         onBlank={blankWorkflow}
         onTemplate={useTemplate}
+      />
+      <DeployModal
+        open={deployOpen}
+        onClose={() => setDeployOpen(false)}
+        workflowId={s.workflowId}
+        workflowName={s.name}
       />
       <HistoryModal
         open={historyOpen}

@@ -1,10 +1,12 @@
 """ZoidLab AI Workflow Builder — API.
 FastAPI + SQLite + in-process DAG executor. LLM nodes route through the Nyquest relay."""
 import json
+import time
 import asyncio
+import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 import db
 from schema import Workflow, RunRequest
@@ -127,6 +129,85 @@ def restore_version(vid: str, request: Request):
     return wf
 
 
+# --- deployment (deploy workflow as a webhook) ---
+@app.get("/api/workflows/{wid}/deployment")
+def get_deployment(wid: str, request: Request):
+    d = db.get_deployment(wid, owner_of(request))
+    if d is None:
+        raise HTTPException(404, "Workflow not found")
+    return d
+
+
+@app.post("/api/workflows/{wid}/deploy")
+def deploy(wid: str, request: Request):
+    p = session_payload(request.cookies.get("zb_session"))
+    d = db.deploy_workflow(wid, owner_of(request), p.get("rk") if p else None)
+    if d is None:
+        raise HTTPException(404, "Workflow not found")
+    return d
+
+
+@app.delete("/api/workflows/{wid}/deploy")
+def undeploy(wid: str, request: Request):
+    if not db.undeploy_workflow(wid, owner_of(request)):
+        raise HTTPException(404, "Workflow not found")
+    return {"ok": True}
+
+
+async def _collect(wf: dict, trigger: dict) -> dict:
+    """Run a workflow to completion, collecting events into a run summary."""
+    started = datetime.datetime.utcnow().isoformat() + "Z"
+    t0 = time.time()
+    events, status, output, tokens, err = [], "complete", None, 0, None
+    async for ev in run_workflow(wf, trigger):
+        events.append(ev)
+        if ev.get("type") == "node":
+            if ev.get("tokens"):
+                tokens += ev["tokens"]
+            if ev.get("status") == "error":
+                status, err = "error", ev.get("error")
+        elif ev.get("type") == "done":
+            output = ev.get("output")
+        elif ev.get("type") == "error":
+            status, err = "error", ev.get("error")
+    return {"status": status, "output": output, "tokens": tokens or None,
+            "error": err, "ms": int((time.time() - t0) * 1000),
+            "started_at": started, "events": events}
+
+
+# --- public webhook trigger (no session; the token IS the credential) ---
+@app.get("/hooks/{token}")
+def hook_info(token: str):
+    dep = db.deployment_by_token(token)
+    if not dep:
+        raise HTTPException(404, "Unknown or disabled hook")
+    return {"ok": True, "workflow": dep["workflow"]["name"],
+            "usage": "POST a JSON body here — it becomes {{trigger.*}} in the workflow."}
+
+
+@app.post("/hooks/{token}")
+async def hook_trigger(token: str, request: Request):
+    dep = db.deployment_by_token(token)
+    if not dep:
+        raise HTTPException(404, "Unknown or disabled hook")
+    try:
+        trigger = await request.json()
+    except Exception:
+        trigger = {}
+    if not isinstance(trigger, dict):
+        trigger = {"payload": trigger}
+
+    set_relay_auth(dep["relay_key"])  # bill the deployer's own wallet
+    res = await _collect(dep["workflow"], trigger)
+    db.log_run(dep["workflow"]["id"], dep["owner"], "webhook", res)
+    return JSONResponse(
+        {"ok": res["status"] == "complete", "workflow": dep["workflow"]["name"],
+         "status": res["status"], "output": res["output"],
+         "ms": res["ms"], "tokens": res["tokens"], "error": res["error"]},
+        status_code=200 if res["status"] == "complete" else 500,
+    )
+
+
 class GenerateRequest(BaseModel):
     prompt: str
     model: str | None = None
@@ -147,15 +228,36 @@ async def run(req: RunRequest, request: Request):
     """Execute a workflow, streaming node status events as SSE."""
     wf = req.workflow.model_dump()
     auth = relay_key_from_cookie(request.cookies.get("zb_session"))
+    owner = owner_of(request)
 
     async def gen():
         set_relay_auth(auth)  # bill the logged-in user's own Nyquest wallet
+        started = datetime.datetime.utcnow().isoformat() + "Z"
+        t0 = time.time()
+        events, status, output, tokens, err = [], "complete", None, 0, None
         try:
             async for ev in run_workflow(wf, req.trigger):
+                events.append(ev)
+                if ev.get("type") == "node":
+                    if ev.get("tokens"):
+                        tokens += ev["tokens"]
+                    if ev.get("status") == "error":
+                        status, err = "error", ev.get("error")
+                elif ev.get("type") == "done":
+                    output = ev.get("output")
                 yield f"data: {json.dumps(ev)}\n\n"
                 await asyncio.sleep(0)  # flush
         except Exception as ex:
+            status, err = "error", str(ex)
             yield f"data: {json.dumps({'type': 'error', 'error': str(ex)})}\n\n"
+        finally:
+            try:
+                db.log_run(wf.get("id"), owner, "editor",
+                           {"status": status, "output": output, "tokens": tokens or None,
+                            "error": err, "ms": int((time.time() - t0) * 1000),
+                            "started_at": started, "events": events})
+            except Exception:
+                pass
 
     return StreamingResponse(
         gen(),

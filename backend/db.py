@@ -7,6 +7,7 @@ session). All reads/writes are scoped to the caller's owner; `owner=None`
 import os
 import json
 import uuid
+import secrets
 import sqlite3
 import datetime
 
@@ -47,6 +48,31 @@ def init():
         if "owner" not in cols:
             c.execute("ALTER TABLE workflows ADD COLUMN owner TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_workflows_owner ON workflows(owner, updated_at)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS deployments (
+                token TEXT PRIMARY KEY,
+                workflow_id TEXT UNIQUE NOT NULL,
+                relay_key TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                owner TEXT,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ms INTEGER,
+                tokens INTEGER,
+                output TEXT,
+                error TEXT,
+                events TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_runs_wf ON runs(workflow_id, started_at)")
 
 
 def _owned(c, wid, owner):
@@ -134,7 +160,75 @@ def delete_workflow(wid, owner=None):
             return False
         c.execute("DELETE FROM workflows WHERE id=?", (wid,))
         c.execute("DELETE FROM versions WHERE workflow_id=?", (wid,))
+        c.execute("DELETE FROM deployments WHERE workflow_id=?", (wid,))
+        c.execute("DELETE FROM runs WHERE workflow_id=?", (wid,))
     return True
+
+
+# --- deployments ---------------------------------------------------------
+def get_deployment(wid, owner=None):
+    with _conn() as c:
+        if not _owned(c, wid, owner):
+            return None
+        r = c.execute("SELECT token, enabled, created_at FROM deployments WHERE workflow_id=?", (wid,)).fetchone()
+        return dict(r) if r else {"token": None, "enabled": 0}
+
+
+def deploy_workflow(wid, owner=None, relay_key=None):
+    """Create (or rotate) the webhook deployment. relay_key = the deployer's
+    own Nyquest key so unattended runs bill their wallet."""
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    token = "zh_" + secrets.token_urlsafe(24)
+    with _conn() as c:
+        if not _owned(c, wid, owner):
+            return None
+        c.execute("DELETE FROM deployments WHERE workflow_id=?", (wid,))
+        c.execute(
+            "INSERT INTO deployments (token, workflow_id, relay_key, enabled, created_at) VALUES (?,?,?,1,?)",
+            (token, wid, relay_key, now),
+        )
+    return {"token": token, "enabled": 1, "created_at": now}
+
+
+def undeploy_workflow(wid, owner=None):
+    with _conn() as c:
+        if not _owned(c, wid, owner):
+            return False
+        c.execute("DELETE FROM deployments WHERE workflow_id=?", (wid,))
+    return True
+
+
+def deployment_by_token(token):
+    with _conn() as c:
+        r = c.execute(
+            """SELECT d.workflow_id, d.relay_key, w.owner FROM deployments d
+               JOIN workflows w ON w.id = d.workflow_id
+               WHERE d.token=? AND d.enabled=1""",
+            (token,),
+        ).fetchone()
+    if not r:
+        return None
+    wf = get_workflow(r["workflow_id"], r["owner"])
+    if not wf:
+        return None
+    return {"workflow": wf, "relay_key": r["relay_key"], "owner": r["owner"]}
+
+
+# --- run log --------------------------------------------------------------
+def log_run(workflow_id, owner, source, res):
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO runs (id, workflow_id, owner, source, status, started_at, ms, tokens, output, error, events)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "run_" + uuid.uuid4().hex[:10], workflow_id, owner, source,
+                res.get("status", "error"), res.get("started_at", datetime.datetime.utcnow().isoformat() + "Z"),
+                res.get("ms"), res.get("tokens"),
+                (res.get("output") or "")[:4000] if res.get("output") else None,
+                (res.get("error") or "")[:2000] if res.get("error") else None,
+                json.dumps(res.get("events") or [])[:100000],
+            ),
+        )
 
 
 def rename_workflow(wid, name, owner=None):
