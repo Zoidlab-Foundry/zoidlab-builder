@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { verifyAndMint, issueSession, takeCode } from "../../../lib/handoff";
 
 const COOKIE = "zb_session";
+// Shared across every *.zoidlab.ai app so one sign-in covers the whole suite.
+const COOKIE_DOMAIN = process.env.SESSION_COOKIE_DOMAIN || ".zoidlab.ai";
 
 // POST { code } (Phase C handoff) or { token } (direct) — mint a session.
 export async function POST(req: Request) {
@@ -31,6 +33,7 @@ export async function POST(req: Request) {
     secure: true,
     sameSite: "lax",
     path: "/",
+    domain: COOKIE_DOMAIN,
     maxAge: 60 * 60 * 24 * 30,
   });
   return res;
@@ -39,6 +42,6 @@ export async function POST(req: Request) {
 // DELETE — log out.
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE, "", { path: "/", maxAge: 0 });
+  res.cookies.set(COOKIE, "", { path: "/", domain: COOKIE_DOMAIN, maxAge: 0 });
   return res;
 }
