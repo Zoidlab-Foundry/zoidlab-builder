@@ -14,6 +14,7 @@ from executor import run_workflow
 from llm import list_models, set_relay_auth
 from flowsmith import generate as flowsmith_generate
 from auth import relay_key_from_cookie, session_payload
+import vault
 from pydantic import BaseModel
 
 app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0")
@@ -129,6 +130,32 @@ def restore_version(vid: str, request: Request):
     return wf
 
 
+# --- secrets vault ---
+@app.get("/api/secrets")
+def secrets_list(request: Request):
+    # values are never returned — only name + masked preview
+    return {"secrets": db.list_secrets(owner_of(request))}
+
+
+class SecretRequest(BaseModel):
+    value: str
+
+
+@app.put("/api/secrets/{name}")
+def secret_set(name: str, req: SecretRequest, request: Request):
+    if not vault.valid_name(name):
+        raise HTTPException(400, "Name must be letters, numbers, or underscore (max 64).")
+    if not req.value:
+        raise HTTPException(400, "Empty value.")
+    return db.set_secret(owner_of(request), name, req.value)
+
+
+@app.delete("/api/secrets/{name}")
+def secret_delete(name: str, request: Request):
+    db.delete_secret(owner_of(request), name)
+    return {"ok": True}
+
+
 # --- monitoring ---
 @app.get("/api/stats")
 def stats(request: Request):
@@ -173,22 +200,23 @@ def undeploy(wid: str, request: Request):
     return {"ok": True}
 
 
-async def _collect(wf: dict, trigger: dict) -> dict:
-    """Run a workflow to completion, collecting events into a run summary."""
+async def _collect(wf: dict, trigger: dict, secrets: dict) -> dict:
+    """Run a workflow to completion, collecting (redacted) events into a summary."""
     started = datetime.datetime.utcnow().isoformat() + "Z"
     t0 = time.time()
+    red = vault.make_redactor(secrets.values())
     events, status, output, tokens, err = [], "complete", None, 0, None
-    async for ev in run_workflow(wf, trigger):
-        events.append(ev)
+    async for ev in run_workflow(wf, trigger, secrets):
+        events.append(red(ev))
         if ev.get("type") == "node":
             if ev.get("tokens"):
                 tokens += ev["tokens"]
             if ev.get("status") == "error":
-                status, err = "error", ev.get("error")
+                status, err = "error", red(ev.get("error"))
         elif ev.get("type") == "done":
-            output = ev.get("output")
+            output = red(ev.get("output"))
         elif ev.get("type") == "error":
-            status, err = "error", ev.get("error")
+            status, err = "error", red(ev.get("error"))
     return {"status": status, "output": output, "tokens": tokens or None,
             "error": err, "ms": int((time.time() - t0) * 1000),
             "started_at": started, "events": events}
@@ -217,7 +245,7 @@ async def hook_trigger(token: str, request: Request):
         trigger = {"payload": trigger}
 
     set_relay_auth(dep["relay_key"])  # bill the deployer's own wallet
-    res = await _collect(dep["workflow"], trigger)
+    res = await _collect(dep["workflow"], trigger, db.secrets_map(dep["owner"]))
     db.log_run(dep["workflow"]["id"], dep["owner"], "webhook", res)
     return JSONResponse(
         {"ok": res["status"] == "complete", "workflow": dep["workflow"]["name"],
@@ -248,6 +276,8 @@ async def run(req: RunRequest, request: Request):
     wf = req.workflow.model_dump()
     auth = relay_key_from_cookie(request.cookies.get("zb_session"))
     owner = owner_of(request)
+    secrets = db.secrets_map(owner)
+    red = vault.make_redactor(secrets.values())
 
     async def gen():
         set_relay_auth(auth)  # bill the logged-in user's own Nyquest wallet
@@ -255,7 +285,8 @@ async def run(req: RunRequest, request: Request):
         t0 = time.time()
         events, status, output, tokens, err = [], "complete", None, 0, None
         try:
-            async for ev in run_workflow(wf, req.trigger):
+            async for ev in run_workflow(wf, req.trigger, secrets):
+                ev = red(ev)  # never stream a secret back to the UI
                 events.append(ev)
                 if ev.get("type") == "node":
                     if ev.get("tokens"):

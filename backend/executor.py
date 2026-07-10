@@ -17,7 +17,7 @@ def _preview(v, limit=4000):
     return s if len(s) <= limit else s[:limit] + "…"
 
 
-async def run_workflow(wf: dict, trigger: dict):
+async def run_workflow(wf: dict, trigger: dict, secrets: dict | None = None):
     nodes = {n["id"]: n for n in wf.get("nodes", [])}
     edges = wf.get("edges", [])
 
@@ -37,6 +37,7 @@ async def run_workflow(wf: dict, trigger: dict):
     ctx = {
         "vars": dict(trigger or {}),
         "trigger": dict(trigger or {}),
+        "secrets": dict(secrets or {}),
         "nodes": {},
         "previous": {"output": None},
         "now": datetime.datetime.utcnow().isoformat() + "Z",

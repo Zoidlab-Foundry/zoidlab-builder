@@ -65,6 +65,34 @@ export async function cloneWorkflow(id: string): Promise<{ id: string; name: str
   return r.json();
 }
 
+export interface SecretMeta {
+  name: string;
+  preview: string;
+  created_at: string;
+}
+
+export async function listSecrets(): Promise<SecretMeta[]> {
+  const r = await fetch("/api/secrets");
+  return r.ok ? (await r.json()).secrets || [] : [];
+}
+
+export async function setSecret(name: string, value: string) {
+  const r = await fetch(`/api/secrets/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.detail || "Could not save secret");
+  }
+  return r.json();
+}
+
+export async function deleteSecret(name: string) {
+  await fetch(`/api/secrets/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
 export interface RunMeta {
   id: string;
   workflow_id: string;

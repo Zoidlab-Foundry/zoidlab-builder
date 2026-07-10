@@ -7,9 +7,10 @@ session). All reads/writes are scoped to the caller's owner; `owner=None`
 import os
 import json
 import uuid
-import secrets
+import secrets as _secrets
 import sqlite3
 import datetime
+import vault
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -73,6 +74,16 @@ def init():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_runs_wf ON runs(workflow_id, started_at)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS secrets (
+                owner TEXT NOT NULL,
+                name TEXT NOT NULL,
+                value_enc TEXT NOT NULL,
+                preview TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (owner, name)
+            )
+        """)
 
 
 def _owned(c, wid, owner):
@@ -178,7 +189,7 @@ def deploy_workflow(wid, owner=None, relay_key=None):
     """Create (or rotate) the webhook deployment. relay_key = the deployer's
     own Nyquest key so unattended runs bill their wallet."""
     now = datetime.datetime.utcnow().isoformat() + "Z"
-    token = "zh_" + secrets.token_urlsafe(24)
+    token = "zh_" + _secrets.token_urlsafe(24)
     with _conn() as c:
         if not _owned(c, wid, owner):
             return None
@@ -262,6 +273,44 @@ def get_run(rid, owner=None):
     except Exception:
         d["events"] = []
     return d
+
+
+# --- secrets vault (owner-scoped; '' = local sandbox) ---
+def list_secrets(owner=None):
+    with _conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT name, preview, created_at FROM secrets WHERE owner=? ORDER BY name",
+            (owner or "",),
+        ).fetchall()]
+
+
+def set_secret(owner, name, value):
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO secrets (owner, name, value_enc, preview, created_at) VALUES (?,?,?,?,?)
+               ON CONFLICT(owner, name) DO UPDATE SET value_enc=excluded.value_enc,
+                 preview=excluded.preview, created_at=excluded.created_at""",
+            (owner or "", name, vault.encrypt(value), vault.preview(value), now),
+        )
+    return {"name": name, "preview": vault.preview(value)}
+
+
+def delete_secret(owner, name):
+    with _conn() as c:
+        c.execute("DELETE FROM secrets WHERE owner=? AND name=?", (owner or "", name))
+
+
+def secrets_map(owner=None):
+    """{name: plaintext} for injecting into a run. Decrypt failures are skipped."""
+    out = {}
+    with _conn() as c:
+        for r in c.execute("SELECT name, value_enc FROM secrets WHERE owner=?", (owner or "",)).fetchall():
+            try:
+                out[r["name"]] = vault.decrypt(r["value_enc"])
+            except Exception:
+                pass
+    return out
 
 
 def run_stats(owner=None):
