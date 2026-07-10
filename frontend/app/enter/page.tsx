@@ -8,12 +8,15 @@ export default function Enter() {
 
   useEffect(() => {
     const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
-    const token = hash.get("t") || new URLSearchParams(location.search).get("t");
-    if (!token) { setState("no-token"); return; }
+    const search = new URLSearchParams(location.search);
+    const code = hash.get("c") || search.get("c");
+    const token = hash.get("t") || search.get("t");
+    const body = code ? { code } : token ? { token } : null;
+    if (!body) { setState("no-token"); return; }
     fetch("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify(body),
     })
       .then(async (r) => {
         if (r.ok) {

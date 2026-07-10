@@ -6,7 +6,7 @@ import { jwtVerify } from "jose";
 // Nyquest Pro/Teams user is verified via /api/session. Public paths below are
 // the ones needed to establish that session.
 const SECRET = new TextEncoder().encode(process.env.BUILDER_SESSION_SECRET || "dev-secret-change-me");
-const PUBLIC_PREFIXES = ["/enter", "/gate", "/api/session", "/hooks"];
+const PUBLIC_PREFIXES = ["/enter", "/gate", "/api/session", "/api/handoff", "/hooks"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
