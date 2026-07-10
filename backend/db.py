@@ -231,6 +231,72 @@ def log_run(workflow_id, owner, source, res):
         )
 
 
+def list_runs(owner=None, workflow_id=None, limit=100):
+    q = ("""SELECT r.id, r.workflow_id, COALESCE(w.name,'(deleted)') AS workflow_name,
+                   r.source, r.status, r.started_at, r.ms, r.tokens
+            FROM runs r LEFT JOIN workflows w ON w.id = r.workflow_id
+            WHERE r.owner IS ? """)
+    args = [owner]
+    if workflow_id:
+        q += "AND r.workflow_id = ? "
+        args.append(workflow_id)
+    q += "ORDER BY r.started_at DESC LIMIT ?"
+    args.append(limit)
+    with _conn() as c:
+        return [dict(r) for r in c.execute(q, args).fetchall()]
+
+
+def get_run(rid, owner=None):
+    with _conn() as c:
+        r = c.execute(
+            """SELECT r.*, COALESCE(w.name,'(deleted)') AS workflow_name
+               FROM runs r LEFT JOIN workflows w ON w.id = r.workflow_id
+               WHERE r.id=? AND r.owner IS ?""",
+            (rid, owner),
+        ).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    try:
+        d["events"] = json.loads(d.get("events") or "[]")
+    except Exception:
+        d["events"] = []
+    return d
+
+
+def run_stats(owner=None):
+    with _conn() as c:
+        row = c.execute(
+            """SELECT COUNT(*) total,
+                      SUM(CASE WHEN status='complete' THEN 1 ELSE 0 END) ok,
+                      COALESCE(SUM(tokens),0) tokens,
+                      COALESCE(AVG(ms),0) avg_ms
+               FROM runs WHERE owner IS ?""",
+            (owner,),
+        ).fetchone()
+        by_src = {r["source"]: r["n"] for r in c.execute(
+            "SELECT source, COUNT(*) n FROM runs WHERE owner IS ? GROUP BY source", (owner,)
+        ).fetchall()}
+        days = [dict(r) for r in c.execute(
+            """SELECT substr(started_at,1,10) d, COUNT(*) n,
+                      SUM(CASE WHEN status='complete' THEN 1 ELSE 0 END) ok
+               FROM runs WHERE owner IS ? GROUP BY d ORDER BY d DESC LIMIT 14""",
+            (owner,),
+        ).fetchall()]
+    total = row["total"] or 0
+    ok = row["ok"] or 0
+    return {
+        "total": total,
+        "ok": ok,
+        "failed": total - ok,
+        "success_rate": round(100 * ok / total) if total else None,
+        "tokens": row["tokens"] or 0,
+        "avg_ms": int(row["avg_ms"] or 0),
+        "by_source": by_src,
+        "days": list(reversed(days)),
+    }
+
+
 def rename_workflow(wid, name, owner=None):
     now = datetime.datetime.utcnow().isoformat() + "Z"
     with _conn() as c:

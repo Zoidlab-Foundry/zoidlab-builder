@@ -26,6 +26,7 @@ import WorkflowsModal from "../components/WorkflowsModal";
 import NewWorkflowModal from "../components/NewWorkflowModal";
 import HistoryModal from "../components/HistoryModal";
 import DeployModal from "../components/DeployModal";
+import MonitorModal from "../components/MonitorModal";
 import { type Template } from "../lib/templates";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
@@ -46,6 +47,7 @@ function Builder() {
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
+  const [monitorOpen, setMonitorOpen] = useState(false);
   const [user, setUser] = useState<{ email: string; tier: string } | null>(null);
 
   useEffect(() => {
@@ -233,6 +235,13 @@ function Builder() {
             title="Version history"
           >
             ⟲ History
+          </button>
+          <button
+            onClick={() => setMonitorOpen(true)}
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="Runs & monitoring"
+          >
+            ◷ Runs
           </button>
         </div>
         <input

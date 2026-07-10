@@ -65,6 +65,44 @@ export async function cloneWorkflow(id: string): Promise<{ id: string; name: str
   return r.json();
 }
 
+export interface RunMeta {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  source: string;
+  status: string;
+  started_at: string;
+  ms: number | null;
+  tokens: number | null;
+}
+
+export interface Stats {
+  total: number;
+  ok: number;
+  failed: number;
+  success_rate: number | null;
+  tokens: number;
+  avg_ms: number;
+  by_source: Record<string, number>;
+  days: { d: string; n: number; ok: number }[];
+}
+
+export async function getStats(): Promise<Stats | null> {
+  const r = await fetch("/api/stats");
+  return r.ok ? r.json() : null;
+}
+
+export async function listRuns(workflowId?: string): Promise<RunMeta[]> {
+  const r = await fetch("/api/runs" + (workflowId ? `?workflow_id=${workflowId}` : ""));
+  return r.ok ? (await r.json()).runs || [] : [];
+}
+
+export async function getRun(id: string): Promise<any> {
+  const r = await fetch(`/api/runs/${id}`);
+  if (!r.ok) throw new Error("Run not found");
+  return r.json();
+}
+
 export interface Deployment {
   token: string | null;
   enabled: number;

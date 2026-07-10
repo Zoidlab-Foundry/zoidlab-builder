@@ -129,6 +129,25 @@ def restore_version(vid: str, request: Request):
     return wf
 
 
+# --- monitoring ---
+@app.get("/api/stats")
+def stats(request: Request):
+    return db.run_stats(owner_of(request))
+
+
+@app.get("/api/runs")
+def runs(request: Request, workflow_id: str | None = None):
+    return {"runs": db.list_runs(owner_of(request), workflow_id)}
+
+
+@app.get("/api/runs/{rid}")
+def run_detail(rid: str, request: Request):
+    r = db.get_run(rid, owner_of(request))
+    if not r:
+        raise HTTPException(404, "Run not found")
+    return r
+
+
 # --- deployment (deploy workflow as a webhook) ---
 @app.get("/api/workflows/{wid}/deployment")
 def get_deployment(wid: str, request: Request):
