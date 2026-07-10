@@ -298,6 +298,26 @@ export const TEMPLATES: Template[] = [
     ],
   },
   {
+    slug: "slack-digest",
+    name: "Daily Slack Digest",
+    description: "Draft a daily team brief and post it to Slack — schedule it to run every morning.",
+    glyph: "＃",
+    accent: "#22d3ee",
+    nodes: [
+      { id: "start", type: "start", position: { x: 60, y: 160 }, data: {} },
+      { id: "topic", type: "prompt", position: { x: 300, y: 160 }, data: { template: "Today's focus for an AI product team: shipping quality, watching costs, and talking to users." } },
+      { id: "brief", type: "llm", position: { x: 560, y: 160 }, data: { model: "auto", system: "Write a crisp morning team digest: a one-line headline, then 3 bullets (priority, risk, quick win). Keep it under 90 words, plain text.", prompt: "{{nodes.topic.output}}", max_tokens: 300 } },
+      { id: "post", type: "slack", position: { x: 820, y: 160 }, data: { webhook_url: "{{secrets.SLACK_WEBHOOK}}", message: "{{nodes.brief.output}}" } },
+      { id: "end", type: "end", position: { x: 1080, y: 160 }, data: {} },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "topic" },
+      { id: "e2", source: "topic", target: "brief" },
+      { id: "e3", source: "brief", target: "post" },
+      { id: "e4", source: "post", target: "end" },
+    ],
+  },
+  {
     slug: "network-troubleshoot",
     name: "Network Troubleshooting",
     description: "Diagnose an infra alert, propose fixes, and page on-call if it's critical.",

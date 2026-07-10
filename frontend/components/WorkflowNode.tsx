@@ -19,10 +19,10 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
   const ring = run ? STATUS_RING[run.status] : selected ? def.accent : "#2a2d3a";
   const pulsing = run?.status === "running";
 
-  // Switch derives its output handles from the configured cases.
+  // Switch/Classifier derive their output handles from configured cases/labels.
   const parseCases = (v: any) => String(v || "").split("\n").map((s) => s.trim()).filter(Boolean);
   const outs = def.dynamicOutputs
-    ? [...parseCases(config.cases).map((v) => ({ id: v, label: v, color: "#818cf8" })), { id: "default", label: "default", color: "#9aa0b0" }]
+    ? [...parseCases(config.cases ?? config.labels).map((v) => ({ id: v, label: v, color: "#818cf8" })), { id: "default", label: "default", color: "#9aa0b0" }]
     : def.outputs;
 
   // a compact subtitle from the most salient config field
@@ -32,6 +32,12 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "summarizer" ? `${config.model || "model"} · ${config.length || "short"}` :
     nodeType === "decision" ? `${config.mode || "contains"} "${config.value || ""}"` :
     nodeType === "switch" ? `${parseCases(config.cases).length} cases` :
+    nodeType === "classifier" ? `${parseCases(config.labels).length} labels` :
+    nodeType === "translator" ? `→ ${config.language || "Spanish"}` :
+    nodeType === "extractor" ? `${parseCases(config.fields).length} fields` :
+    nodeType === "jsonpath" ? (config.path || "(root)") :
+    nodeType === "delay" ? `${config.seconds ?? 2}s` :
+    nodeType === "slack" || nodeType === "discord" ? (config.webhook_url ? "webhook set" : "dry-run") :
     nodeType === "foreach" ? `over ${config.over || "list"}` :
     nodeType === "variable" ? `${config.name || "name"} =` :
     nodeType === "email" ? `to ${config.to || "…"}` :

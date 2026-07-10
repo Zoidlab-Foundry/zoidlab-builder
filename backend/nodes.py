@@ -6,6 +6,7 @@ Template paths resolve against the run context:
 """
 import re
 import json
+import asyncio
 import httpx
 from llm import chat, DEFAULT_MODEL
 
@@ -184,6 +185,93 @@ async def exec_node(node, ctx):
                                 temperature=0.4, max_tokens=int(data.get("max_tokens", 300)))
             results.append(out)
         return {"output": results, "meta": f"mapped {len(results)} item(s)"}
+
+    if t == "delay":
+        try:
+            secs = min(max(float(data.get("seconds", 2) or 0), 0), 120)
+        except Exception:
+            secs = 2
+        await asyncio.sleep(secs)
+        return {"output": incoming, "meta": f"waited {secs:g}s"}
+
+    if t == "jsonpath":
+        raw = incoming
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except Exception:
+                pass
+        path = str(data.get("path", "")).strip()
+        cur = raw
+        for part in [p for p in path.split(".") if p]:
+            if isinstance(cur, list):
+                try:
+                    cur = cur[int(part)]
+                except Exception:
+                    cur = None
+                    break
+            elif isinstance(cur, dict):
+                cur = cur.get(part)
+            else:
+                cur = None
+                break
+        return {"output": cur, "meta": f"→ {path or '(root)'}"}
+
+    if t == "classifier":
+        labels = [ln.strip() for ln in str(data.get("labels", "")).splitlines() if ln.strip()]
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
+        subject = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
+        text, usage = await chat(
+            model,
+            [{"role": "system", "content": "Classify the user's text. Reply with exactly one of these labels and nothing else: " + ", ".join(labels)},
+             {"role": "user", "content": subject or "(no input)"}],
+            temperature=0, max_tokens=10,
+        )
+        low = text.strip().lower()
+        matched = next((l for l in labels if l.lower() in low), "default")
+        return {"output": incoming, "branch": matched,
+                "tokens": usage.get("total_tokens"), "meta": f"→ {matched}"}
+
+    if t == "translator":
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
+        lang = render(str(data.get("language", "English")), ctx) or "English"
+        text, usage = await chat(
+            model,
+            [{"role": "system", "content": f"Translate the user's text into {lang}. Output only the translation."},
+             {"role": "user", "content": _as_text(incoming) or "(no input)"}],
+            temperature=0.2, max_tokens=1200,
+        )
+        return {"output": text, "tokens": usage.get("total_tokens"), "meta": f"→ {lang}"}
+
+    if t == "extractor":
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
+        fields = [ln.strip() for ln in str(data.get("fields", "")).splitlines() if ln.strip()]
+        keys = [f.split(":", 1)[0].strip() for f in fields]
+        text, usage = await chat(
+            model,
+            [{"role": "system", "content": "Extract these fields from the user's text and reply with ONE JSON object only (keys: "
+              + ", ".join(keys) + "). Use null for anything not present.\nField notes:\n" + "\n".join(fields)},
+             {"role": "user", "content": _as_text(incoming) or "(no input)"}],
+            temperature=0, max_tokens=600,
+        )
+        try:
+            start = text.find("{")
+            obj, _ = json.JSONDecoder().raw_decode(text[start:])
+            return {"output": obj, "tokens": usage.get("total_tokens"), "meta": f"extracted {len(keys)} field(s)"}
+        except Exception:
+            return {"output": text, "tokens": usage.get("total_tokens"), "meta": "extracted (unparsed)"}
+
+    if t in ("slack", "discord"):
+        url = render(str(data.get("webhook_url", "")), ctx).strip()
+        message = render(str(data.get("message", "")), ctx) or _as_text(incoming)
+        if not url:
+            return {"output": message, "meta": f"composed · dry-run (no webhook URL)"}
+        payload = {"text": message} if t == "slack" else {"content": message[:2000]}
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(url, json=payload)
+        ok = r.status_code < 300
+        return {"output": message,
+                "meta": f"{'sent' if ok else f'failed {r.status_code}'} · {t}"}
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}

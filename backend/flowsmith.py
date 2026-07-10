@@ -7,14 +7,28 @@ import uuid
 from collections import deque
 from llm import chat, DEFAULT_MODEL
 
-VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end"}
+VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end", "webhook", "summarizer",
+               "switch", "foreach", "variable", "email", "model", "classifier", "translator",
+               "extractor", "jsonpath", "delay", "slack", "discord"}
 
 CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - start   entry point.            data: {}
 - prompt  render a template.      data: {"template": "...  use {{previous.output}}, {{trigger.x}}"}
 - llm     call a model.           data: {"model":"anthropic/claude-sonnet-5","system":"...","temperature":0.7,"max_tokens":1024}
 - decision  branch true/false.    data: {"mode":"contains|equals|not_empty","value":"..."}  -> two edges, sourceHandle "true" and "false"
+- switch  multi-way branch on text. data: {"mode":"contains","cases":"a\\nb\\nc"} -> one edge per case (sourceHandle = case) + "default"
+- classifier  LLM classify + route. data: {"labels":"a\\nb\\nc","model":"anthropic/claude-haiku-4.5"} -> one edge per label (sourceHandle = label) + "default"
+- summarizer  condense input.     data: {"model":"...","length":"one line|short|detailed"}
+- translator  translate input.    data: {"language":"Spanish","model":"..."}
+- extractor  text -> JSON fields. data: {"fields":"name\\ndate\\namount","model":"..."}
+- jsonpath  pick field from JSON. data: {"path":"a.b.0.c"}
+- variable  set {{vars.NAME}}.    data: {"name":"x","value":"{{previous.output}}"}
+- delay   pause the flow.         data: {"seconds":5}
 - http    REST call.              data: {"method":"GET|POST|PUT|DELETE","url":"https://...","headers":{},"body":"..."}
+- slack   post via webhook.       data: {"webhook_url":"{{secrets.SLACK_WEBHOOK}}","message":"{{previous.output}}"}
+- discord post via webhook.       data: {"webhook_url":"{{secrets.DISCORD_WEBHOOK}}","message":"{{previous.output}}"}
+- email   compose an email.       data: {"to":"...","subject":"...","body":"{{previous.output}}"}
+- webhook inbound trigger.        data: {"path":"/hook/name"}
 - end     terminal output.        data: {}"""
 
 EXAMPLE = """{"name":"Support Email Triage","nodes":[
@@ -61,7 +75,21 @@ ALLOWED = {
     "prompt": ["template"],
     "llm": ["model", "system", "prompt", "temperature", "max_tokens"],
     "decision": ["mode", "value"],
+    "switch": ["mode", "cases"],
+    "classifier": ["labels", "model", "prompt"],
+    "summarizer": ["model", "length"],
+    "translator": ["language", "model"],
+    "extractor": ["fields", "model"],
+    "jsonpath": ["path"],
+    "variable": ["name", "value"],
+    "delay": ["seconds"],
+    "foreach": ["over", "model", "prompt", "max_tokens"],
     "http": ["method", "url", "headers", "body"],
+    "slack": ["webhook_url", "message"],
+    "discord": ["webhook_url", "message"],
+    "email": ["to", "subject", "body"],
+    "webhook": ["path"],
+    "model": ["model", "var"],
 }
 ALIASES = {
     "system_prompt": "system", "systemprompt": "system", "instructions": "system",
