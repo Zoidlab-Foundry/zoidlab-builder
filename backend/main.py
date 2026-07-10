@@ -4,6 +4,8 @@ import json
 import time
 import asyncio
 import datetime
+from contextlib import asynccontextmanager
+from croniter import croniter
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -17,7 +19,50 @@ from auth import relay_key_from_cookie, session_payload
 import vault
 from pydantic import BaseModel
 
-app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0")
+def _next_run(cron: str, base=None) -> str:
+    base = base or datetime.datetime.now(datetime.timezone.utc)
+    nxt = croniter(cron, base).get_next(datetime.datetime)
+    if nxt.tzinfo is None:
+        nxt = nxt.replace(tzinfo=datetime.timezone.utc)
+    return nxt.astimezone(datetime.timezone.utc).isoformat()
+
+
+async def scheduler_loop():
+    """Single in-process cron scheduler (systemd runs one uvicorn worker).
+    Runs due workflows on their owner's key, logs them as source=schedule."""
+    while True:
+        try:
+            for sch in db.due_schedules():
+                wid, owner = sch["workflow_id"], sch["owner"]
+                wf = db.get_workflow(wid, owner)
+                nxt = _next_run(sch["cron"])
+                now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+                if not wf:
+                    db.delete_schedule(wid, owner)
+                    continue
+                set_relay_auth(sch.get("relay_key"))
+                try:
+                    res = await _collect(wf, {}, db.secrets_map(owner))
+                    db.log_run(wid, owner, "schedule", res)
+                except Exception as ex:
+                    db.log_run(wid, owner, "schedule",
+                               {"status": "error", "error": str(ex), "events": [],
+                                "started_at": now_iso, "ms": 0})
+                db.mark_schedule_ran(wid, now_iso, nxt)
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.init()
+    task = asyncio.create_task(scheduler_loop())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,8 +70,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-db.init()
 
 
 def owner_of(request: Request):
@@ -197,6 +240,34 @@ def deploy(wid: str, request: Request):
 def undeploy(wid: str, request: Request):
     if not db.undeploy_workflow(wid, owner_of(request)):
         raise HTTPException(404, "Workflow not found")
+    return {"ok": True}
+
+
+# --- schedule (cron trigger) ---
+@app.get("/api/workflows/{wid}/schedule")
+def get_schedule(wid: str, request: Request):
+    return db.get_schedule(wid, owner_of(request)) or {"cron": None, "enabled": 0}
+
+
+class ScheduleRequest(BaseModel):
+    cron: str
+
+
+@app.put("/api/workflows/{wid}/schedule")
+def set_schedule(wid: str, req: ScheduleRequest, request: Request):
+    cron = (req.cron or "").strip()
+    if not croniter.is_valid(cron):
+        raise HTTPException(400, "Invalid cron expression (5 fields: min hour dom mon dow, UTC).")
+    p = session_payload(request.cookies.get("zb_session"))
+    s = db.set_schedule(wid, owner_of(request), cron, p.get("rk") if p else None, _next_run(cron))
+    if s is None:
+        raise HTTPException(404, "Workflow not found")
+    return s
+
+
+@app.delete("/api/workflows/{wid}/schedule")
+def delete_schedule(wid: str, request: Request):
+    db.delete_schedule(wid, owner_of(request))
     return {"ok": True}
 
 

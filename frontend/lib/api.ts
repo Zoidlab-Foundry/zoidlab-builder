@@ -152,6 +152,35 @@ export async function undeployWorkflow(id: string) {
   await fetch(`/api/workflows/${id}/deploy`, { method: "DELETE" });
 }
 
+export interface Schedule {
+  cron: string | null;
+  enabled: number;
+  next_run?: string | null;
+  last_run?: string | null;
+}
+
+export async function getSchedule(id: string): Promise<Schedule | null> {
+  const r = await fetch(`/api/workflows/${id}/schedule`);
+  return r.ok ? r.json() : null;
+}
+
+export async function setSchedule(id: string, cron: string): Promise<Schedule> {
+  const r = await fetch(`/api/workflows/${id}/schedule`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cron }),
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error(j.detail || "Invalid schedule");
+  }
+  return r.json();
+}
+
+export async function deleteSchedule(id: string) {
+  await fetch(`/api/workflows/${id}/schedule`, { method: "DELETE" });
+}
+
 export interface VersionMeta {
   id: string;
   name: string;

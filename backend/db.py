@@ -84,6 +84,18 @@ def init():
                 PRIMARY KEY (owner, name)
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                workflow_id TEXT PRIMARY KEY,
+                owner TEXT,
+                cron TEXT NOT NULL,
+                relay_key TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                next_run TEXT,
+                last_run TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
 
 
 def _owned(c, wid, owner):
@@ -173,7 +185,58 @@ def delete_workflow(wid, owner=None):
         c.execute("DELETE FROM versions WHERE workflow_id=?", (wid,))
         c.execute("DELETE FROM deployments WHERE workflow_id=?", (wid,))
         c.execute("DELETE FROM runs WHERE workflow_id=?", (wid,))
+        c.execute("DELETE FROM schedules WHERE workflow_id=?", (wid,))
     return True
+
+
+# --- schedules (cron) -----------------------------------------------------
+def get_schedule(wid, owner=None):
+    with _conn() as c:
+        r = c.execute("SELECT cron, enabled, next_run, last_run FROM schedules WHERE workflow_id=? AND owner IS ?",
+                      (wid, owner)).fetchone()
+        return dict(r) if r else None
+
+
+def set_schedule(wid, owner, cron, relay_key, next_run):
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    with _conn() as c:
+        if not _owned(c, wid, owner):
+            return None
+        c.execute(
+            """INSERT INTO schedules (workflow_id, owner, cron, relay_key, enabled, next_run, last_run, created_at)
+               VALUES (?,?,?,?,1,?,NULL,?)
+               ON CONFLICT(workflow_id) DO UPDATE SET cron=excluded.cron,
+                 relay_key=excluded.relay_key, enabled=1, next_run=excluded.next_run""",
+            (wid, owner, cron, relay_key, next_run, now),
+        )
+    return get_schedule(wid, owner)
+
+
+def delete_schedule(wid, owner=None):
+    with _conn() as c:
+        c.execute("DELETE FROM schedules WHERE workflow_id=? AND owner IS ?", (wid, owner))
+
+
+def due_schedules():
+    """Enabled schedules whose next_run has passed (parsed in Python)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    out = []
+    with _conn() as c:
+        for r in c.execute("SELECT * FROM schedules WHERE enabled=1").fetchall():
+            try:
+                nr = datetime.datetime.fromisoformat((r["next_run"] or "").replace("Z", "+00:00"))
+                if nr.tzinfo is None:
+                    nr = nr.replace(tzinfo=datetime.timezone.utc)
+                if nr <= now:
+                    out.append(dict(r))
+            except Exception:
+                pass
+    return out
+
+
+def mark_schedule_ran(wid, last_run, next_run):
+    with _conn() as c:
+        c.execute("UPDATE schedules SET last_run=?, next_run=? WHERE workflow_id=?", (last_run, next_run, wid))
 
 
 # --- deployments ---------------------------------------------------------

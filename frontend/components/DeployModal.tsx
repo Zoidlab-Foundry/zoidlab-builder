@@ -1,6 +1,26 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getDeployment, deployWorkflow, undeployWorkflow, type Deployment } from "../lib/api";
+import {
+  getDeployment, deployWorkflow, undeployWorkflow, type Deployment,
+  getSchedule, setSchedule, deleteSchedule, type Schedule,
+} from "../lib/api";
+
+const PRESETS: { label: string; cron: string }[] = [
+  { label: "Every hour", cron: "0 * * * *" },
+  { label: "Every day 09:00", cron: "0 9 * * *" },
+  { label: "Weekdays 08:00", cron: "0 8 * * 1-5" },
+  { label: "Every Monday 09:00", cron: "0 9 * * 1" },
+];
+
+function whenUTC(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const delta = d.getTime() - Date.now();
+  const mins = Math.round(delta / 60000);
+  const rel = mins < 1 ? "any moment" : mins < 60 ? `in ${mins}m` : mins < 1440 ? `in ${Math.round(mins / 60)}h` : `in ${Math.round(mins / 1440)}d`;
+  return `${rel} · ${d.toUTCString().replace("GMT", "UTC")}`;
+}
 
 export default function DeployModal({
   open,
@@ -16,11 +36,17 @@ export default function DeployModal({
   const [dep, setDep] = useState<Deployment | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [sched, setSched] = useState<Schedule | null>(null);
+  const [cron, setCron] = useState("");
+  const [schedBusy, setSchedBusy] = useState(false);
+  const [schedErr, setSchedErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setCopied(false);
+      setSchedErr(null);
       getDeployment(workflowId).then(setDep).catch(() => setDep(null));
+      getSchedule(workflowId).then((s) => { setSched(s); setCron(s?.cron || ""); }).catch(() => setSched(null));
     }
   }, [open, workflowId]);
 
@@ -45,17 +71,32 @@ export default function DeployModal({
     navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); });
   };
 
+  const scheduled = !!sched?.cron && !!sched?.enabled;
+  const saveSchedule = async () => {
+    if (!cron.trim()) return;
+    setSchedBusy(true); setSchedErr(null);
+    try { setSched(await setSchedule(workflowId, cron.trim())); }
+    catch (e: any) { setSchedErr(e?.message || "Invalid schedule"); }
+    finally { setSchedBusy(false); }
+  };
+  const clearSchedule = async () => {
+    setSchedBusy(true);
+    try { await deleteSchedule(workflowId); setSched({ cron: null, enabled: 0 }); setCron(""); }
+    finally { setSchedBusy(false); }
+  };
+
   return (
     <div className="absolute inset-0 z-40 flex items-start justify-center bg-bg/70 backdrop-blur-sm" onClick={onClose}>
       <div className="mt-20 w-[600px] max-w-[94%] rounded-2xl border border-line bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
           <span className="grid h-7 w-7 place-items-center rounded-lg bg-cy/15 text-[14px] text-cy">⚡</span>
-          <span className="text-[14px] font-semibold text-ink">Deploy</span>
+          <span className="text-[14px] font-semibold text-ink">Deploy &amp; triggers</span>
           <span className="truncate text-[12px] text-dim">— {workflowName}</span>
           <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-[13px] text-dim hover:bg-line hover:text-ink">✕</button>
         </div>
 
-        <div className="p-5">
+        <div className="max-h-[76vh] overflow-y-auto p-5">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-dim">Webhook trigger</div>
           {!live ? (
             <>
               <p className="mb-4 text-[13px] leading-relaxed text-dim">
@@ -104,6 +145,53 @@ export default function DeployModal({
               </div>
             </>
           )}
+
+          {/* Schedule trigger */}
+          <div className="mt-6 border-t border-line pt-5">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-dim">Schedule</span>
+              {scheduled && <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ok"><span className="h-1.5 w-1.5 rounded-full bg-ok" />on</span>}
+            </div>
+
+            {scheduled ? (
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <code className="rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[12px] text-cy">{sched!.cron}</code>
+                  <div className="text-[11px] leading-tight text-dim">
+                    <div>next run {whenUTC(sched!.next_run)}</div>
+                    {sched!.last_run && <div className="text-dim/60">last run {whenUTC(sched!.last_run)}</div>}
+                  </div>
+                </div>
+                <button onClick={clearSchedule} disabled={schedBusy} className="rounded-lg border border-line px-4 py-1.5 text-[12px] text-dim hover:border-bad hover:text-bad disabled:opacity-50">
+                  Turn off schedule
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="mb-3 text-[12px] leading-relaxed text-dim">
+                  Run this workflow automatically on a <b className="text-ink">cron schedule</b> (UTC). Runs bill your Nyquest wallet.
+                </p>
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {PRESETS.map((p) => (
+                    <button key={p.cron} onClick={() => setCron(p.cron)}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] ${cron === p.cron ? "border-cy text-cy" : "border-line text-dim hover:border-cy/60 hover:text-ink"}`}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input value={cron} onChange={(e) => setCron(e.target.value)} placeholder="0 9 * * *"
+                    className="w-40 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-cy" />
+                  <button onClick={saveSchedule} disabled={schedBusy || !cron.trim()}
+                    className="rounded-lg bg-cy px-4 py-2 text-[12px] font-semibold text-bg hover:opacity-90 disabled:opacity-40">
+                    {schedBusy ? "…" : "Schedule"}
+                  </button>
+                  <span className="text-[10px] text-dim/60">min hour dom mon dow</span>
+                </div>
+                {schedErr && <div className="mt-2 text-[12px] text-warn">{schedErr}</div>}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
