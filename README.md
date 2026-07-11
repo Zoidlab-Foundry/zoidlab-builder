@@ -4,7 +4,7 @@
 
 <h1 align="center">ZoidLab · AI Workflow Builder</h1>
 
-<p align="center"><b>Part of the <a href="https://github.com/256kMagic/zoidlab-foundry">ZoidLab platform</a> · Live at <a href="https://builder.zoidlab.ai">builder.zoidlab.ai</a></b></p>
+<p align="center"><b>Part of the <a href="https://github.com/Zoidlab-Foundry-m/zoidlab-foundry">ZoidLab platform</a> · Live at <a href="https://builder.zoidlab.ai">builder.zoidlab.ai</a></b></p>
 
 > **Access — Nyquest Pro.** Your Nyquest account is your ZoidLab login (no separate signup).
 > Sign in through Nyquest; a **Pro or Teams** plan unlocks the Builder. One `.zoidlab.ai`
