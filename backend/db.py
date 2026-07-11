@@ -85,6 +85,16 @@ def init():
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS kv_store (
+                owner TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (owner, workflow_id, key)
+            )
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS schedules (
                 workflow_id TEXT PRIMARY KEY,
                 owner TEXT,
@@ -187,6 +197,42 @@ def delete_workflow(wid, owner=None):
         c.execute("DELETE FROM runs WHERE workflow_id=?", (wid,))
         c.execute("DELETE FROM schedules WHERE workflow_id=?", (wid,))
     return True
+
+
+# --- data store (persistent key/value, per owner+workflow) ---------------
+def kv_get(owner, workflow_id, key):
+    with _conn() as c:
+        r = c.execute(
+            "SELECT value FROM kv_store WHERE owner=? AND workflow_id=? AND key=?",
+            (owner or "", workflow_id or "", key),
+        ).fetchone()
+        return r["value"] if r else None
+
+
+def kv_set(owner, workflow_id, key, value):
+    now = datetime.datetime.utcnow().isoformat() + "Z"
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO kv_store (owner, workflow_id, key, value, updated_at) VALUES (?,?,?,?,?)
+               ON CONFLICT(owner, workflow_id, key) DO UPDATE SET value=excluded.value,
+                 updated_at=excluded.updated_at""",
+            (owner or "", workflow_id or "", key, value, now),
+        )
+    return value
+
+
+def kv_append(owner, workflow_id, key, value, sep="\n"):
+    """Append value to the existing text under key (sep-joined); returns the new value."""
+    prev = kv_get(owner, workflow_id, key)
+    new = value if not prev else prev + (sep or "\n") + value
+    kv_set(owner, workflow_id, key, new)
+    return new
+
+
+def kv_delete(owner, workflow_id, key):
+    with _conn() as c:
+        c.execute("DELETE FROM kv_store WHERE owner=? AND workflow_id=? AND key=?",
+                  (owner or "", workflow_id or "", key))
 
 
 # --- schedules (cron) -----------------------------------------------------

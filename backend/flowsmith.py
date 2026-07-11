@@ -11,7 +11,7 @@ VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end", "webhook", "
                "switch", "foreach", "variable", "email", "model", "classifier", "translator",
                "extractor", "jsonpath", "delay", "slack", "discord", "merge", "approval",
                "nyquest_image", "nyquest_speech", "nyquest_music", "nyquest_agent",
-               "nyquest_video"}
+               "nyquest_video", "guardrail", "datastore"}
 
 CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - start   entry point.            data: {}
@@ -22,6 +22,8 @@ CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - merge   wait for all incoming branches then combine. data: {"mode":"combine|collect"}
 - approval  pause for a human decision. data: {"message":"...","auto":"reject"} -> two edges, sourceHandle "approved" and "rejected"
 - classifier  LLM classify + route. data: {"labels":"a\\nb\\nc","model":"anthropic/claude-haiku-4.5"} -> one edge per label (sourceHandle = label) + "default"
+- guardrail  LLM policy check + route. data: {"policy":"Block PII or hateful content.","model":"anthropic/claude-haiku-4.5"} -> two edges, sourceHandle "allow" and "block" (block carries the reason)
+- datastore  persistent key/value memory across runs. data: {"op":"get|set|append|delete","key":"name","value":"{{previous.output}}"} -> get returns the stored value, set/append return the new value
 - summarizer  condense input.     data: {"model":"...","length":"one line|short|detailed"}
 - translator  translate input.    data: {"language":"Spanish","model":"..."}
 - extractor  text -> JSON fields. data: {"fields":"name\\ndate\\namount","model":"..."}
@@ -103,6 +105,8 @@ ALLOWED = {
     "nyquest_music": ["prompt", "model"],
     "nyquest_agent": ["goal", "model", "max_steps"],
     "nyquest_video": ["prompt", "model", "aspect_ratio"],
+    "guardrail": ["policy", "model", "input"],
+    "datastore": ["op", "key", "value", "separator", "default"],
     "email": ["to", "subject", "body"],
     "webhook": ["path"],
     "model": ["model", "var"],

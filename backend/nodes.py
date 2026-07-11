@@ -8,6 +8,7 @@ import re
 import json
 import asyncio
 import httpx
+import db
 from llm import chat, post_json, get_json, run_agent, DEFAULT_MODEL
 
 _EXPR = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
@@ -422,6 +423,59 @@ async def exec_node(node, ctx):
                 raise RuntimeError("video job failed: " + str(job.get("error") or st)[:200])
             if waited >= max_wait:
                 raise RuntimeError(f"video node: timed out after {int(waited)}s (job {job_id} still {st or 'running'})")
+
+    if t == "guardrail":
+        model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
+        policy = render(data.get("policy", ""), ctx).strip() or "Block unsafe or disallowed content."
+        subject = render(data["input"], ctx) if data.get("input") else _as_text(incoming)
+        text, usage = await chat(
+            model,
+            [{"role": "system", "content": "You are a strict content guardrail. Given a POLICY and a MESSAGE, "
+              "decide whether the message is ALLOWED or BLOCKED under the policy. Reply with ONE JSON object only: "
+              '{"decision":"allow"|"block","reason":"one short sentence"}.'},
+             {"role": "user", "content": f"POLICY:\n{policy}\n\nMESSAGE:\n{subject or '(empty)'}"}],
+            temperature=0, max_tokens=120,
+        )
+        decision, reason = "allow", ""
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(text[text.find("{"):])
+            decision = "block" if str(obj.get("decision", "")).lower().startswith("block") else "allow"
+            reason = str(obj.get("reason", "")).strip()
+        except Exception:
+            decision = "block" if "block" in text.lower() else "allow"
+        # allow → pass the content through; block → carry the reason so a
+        # downstream node can explain the rejection.
+        out = incoming if decision == "allow" else (reason or "Blocked by policy.")
+        meta = decision + (f" · {reason[:40]}" if reason else "")
+        return {"output": out, "branch": decision,
+                "tokens": usage.get("total_tokens"), "meta": meta}
+
+    if t == "datastore":
+        owner = ctx.get("_owner")
+        wid = (ctx.get("workflow") or {}).get("id") or ""
+        key = render(str(data.get("key", "")), ctx).strip()
+        if not key:
+            raise RuntimeError("data store: empty key")
+        op = (data.get("op") or "get").lower()
+        if op == "get":
+            val = db.kv_get(owner, wid, key)
+            if val is None:
+                val = render(str(data.get("default", "")), ctx)
+            return {"output": val, "meta": f"get {key}"}
+        if op == "set":
+            val = render(data.get("value", "{{previous.output}}"), ctx)
+            db.kv_set(owner, wid, key, val)
+            return {"output": val, "meta": f"set {key}"}
+        if op == "append":
+            val = render(data.get("value", "{{previous.output}}"), ctx)
+            sep = data.get("separator")
+            sep = sep if isinstance(sep, str) and sep else "\n"
+            new = db.kv_append(owner, wid, key, val, sep)
+            return {"output": new, "meta": f"append {key}"}
+        if op == "delete":
+            db.kv_delete(owner, wid, key)
+            return {"output": incoming, "meta": f"delete {key}"}
+        raise RuntimeError(f"data store: unknown op '{op}'")
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}

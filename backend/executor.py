@@ -56,7 +56,7 @@ async def _run_node(node, ctx):
             await asyncio.sleep(min(2 ** attempt, 8))
 
 
-async def run_workflow(wf: dict, trigger: dict, secrets: dict | None = None, interactive: bool = False):
+async def run_workflow(wf: dict, trigger: dict, secrets: dict | None = None, interactive: bool = False, owner=None):
     nodes = {n["id"]: n for n in wf.get("nodes", [])}
     edges = wf.get("edges", [])
     in_edges: dict[str, list] = {}
@@ -81,6 +81,7 @@ async def run_workflow(wf: dict, trigger: dict, secrets: dict | None = None, int
         "now": datetime.datetime.utcnow().isoformat() + "Z",
         "today": datetime.date.today().isoformat(),
         "workflow": {"id": wf.get("id"), "name": wf.get("name")},
+        "_owner": owner,  # for owner-scoped nodes (data store)
     }
 
     estatus = {e["id"]: "pending" for e in edges}

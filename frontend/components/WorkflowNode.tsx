@@ -62,6 +62,8 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "nyquest_music" ? (config.model || "lyria") :
     nodeType === "nyquest_agent" ? `${config.model || "auto"} · ≤${config.max_steps ?? 6} steps` :
     nodeType === "nyquest_video" ? `${config.model || "veo"} · ${config.aspect_ratio || "16:9"}` :
+    nodeType === "guardrail" ? "allow / block" :
+    nodeType === "datastore" ? `${config.op || "get"} ${config.key || "key"}` :
     nodeType === "email" ? `to ${config.to || "…"}` :
     nodeType === "webhook" ? (config.path || "/hook") :
     nodeType === "http" ? `${config.method || "GET"} ${config.url ? "·" : ""} ${(config.url || "").slice(0, 22)}` :

@@ -42,7 +42,7 @@ async def scheduler_loop():
                     continue
                 set_relay_auth(sch.get("relay_key"))
                 try:
-                    res = await _collect(wf, {}, db.secrets_map(owner))
+                    res = await _collect(wf, {}, db.secrets_map(owner), owner)
                     db.log_run(wid, owner, "schedule", res)
                 except Exception as ex:
                     db.log_run(wid, owner, "schedule",
@@ -282,13 +282,13 @@ def approve(req: ApproveRequest):
     return {"ok": resolve_approval(req.token, req.decision)}
 
 
-async def _collect(wf: dict, trigger: dict, secrets: dict) -> dict:
+async def _collect(wf: dict, trigger: dict, secrets: dict, owner=None) -> dict:
     """Run a workflow to completion, collecting (redacted) events into a summary."""
     started = datetime.datetime.utcnow().isoformat() + "Z"
     t0 = time.time()
     red = vault.make_redactor(secrets.values())
     events, status, output, tokens, err = [], "complete", None, 0, None
-    async for ev in run_workflow(wf, trigger, secrets):
+    async for ev in run_workflow(wf, trigger, secrets, owner=owner):
         events.append(red(ev))
         if ev.get("type") == "node":
             if ev.get("tokens"):
@@ -327,7 +327,7 @@ async def hook_trigger(token: str, request: Request):
         trigger = {"payload": trigger}
 
     set_relay_auth(dep["relay_key"])  # bill the deployer's own wallet
-    res = await _collect(dep["workflow"], trigger, db.secrets_map(dep["owner"]))
+    res = await _collect(dep["workflow"], trigger, db.secrets_map(dep["owner"]), dep["owner"])
     db.log_run(dep["workflow"]["id"], dep["owner"], "webhook", res)
     return JSONResponse(
         {"ok": res["status"] == "complete", "workflow": dep["workflow"]["name"],
@@ -367,7 +367,7 @@ async def run(req: RunRequest, request: Request):
         t0 = time.time()
         events, status, output, tokens, err = [], "complete", None, 0, None
         try:
-            async for ev in run_workflow(wf, req.trigger, secrets, interactive=True):
+            async for ev in run_workflow(wf, req.trigger, secrets, interactive=True, owner=owner):
                 ev = red(ev)  # never stream a secret back to the UI
                 events.append(ev)
                 if ev.get("type") == "node":
