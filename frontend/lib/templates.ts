@@ -362,4 +362,24 @@ export const TEMPLATES: Template[] = [
       { id: "e4", source: "render", target: "end" },
     ],
   },
+  {
+    slug: "topic-to-narration",
+    name: "Topic → Narration",
+    description: "Turn a topic into a short spoken voiceover: LLM writes the script, then Nyquest speaks it.",
+    glyph: "🔊",
+    accent: "#2dd4bf",
+    nodes: [
+      { id: "start", type: "start", position: { x: 60, y: 180 }, data: {} },
+      { id: "topic", type: "prompt", position: { x: 300, y: 180 }, data: { template: "the Nyquest compression engine, for a 15-second product teaser" } },
+      { id: "script", type: "llm", position: { x: 560, y: 180 }, data: { model: "anthropic/claude-haiku-4.5", system: "You are a voiceover writer. Write two punchy spoken sentences (no stage directions, no quotes) for the given topic. Output only the words to be spoken.", prompt: "{{nodes.topic.output}}", temperature: 0.7, max_tokens: 120 } },
+      { id: "voice", type: "nyquest_speech", position: { x: 840, y: 180 }, data: { text: "{{nodes.script.output}}", model: "gemini-2.5-flash-preview-tts", voice: "Kore" } },
+      { id: "end", type: "end", position: { x: 1110, y: 180 }, data: {} },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "topic" },
+      { id: "e2", source: "topic", target: "script" },
+      { id: "e3", source: "script", target: "voice" },
+      { id: "e4", source: "voice", target: "end" },
+    ],
+  },
 ];

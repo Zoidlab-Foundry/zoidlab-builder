@@ -6,7 +6,12 @@ import { useStore } from "../lib/store";
 const isImageUrl = (v: any) =>
   typeof v === "string" &&
   /^https?:\/\/\S+/.test(v) &&
-  (/\.(png|jpe?g|webp|gif|avif)(\?|$)/i.test(v) || /image|imagen|\/generate/i.test(v));
+  (/\.(png|jpe?g|webp|gif|avif)(\?|$)/i.test(v) || /\/image\/|imagen/i.test(v));
+
+const isAudioUrl = (v: any) =>
+  typeof v === "string" &&
+  /^https?:\/\/\S+/.test(v) &&
+  (/\.(mp3|wav|ogg|m4a|flac)(\?|$)/i.test(v) || /\/(audio|music)\//i.test(v));
 
 const STATUS_RING: Record<string, string> = {
   running: "#f4b860",   // yellow — active
@@ -48,6 +53,8 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "foreach" ? `over ${config.over || "list"}` :
     nodeType === "variable" ? `${config.name || "name"} =` :
     nodeType === "nyquest_image" ? `${config.model || "imagen"} · ${config.aspect_ratio || "1:1"}` :
+    nodeType === "nyquest_speech" ? `${config.model || "tts"}${config.voice ? " · " + config.voice : ""}` :
+    nodeType === "nyquest_music" ? (config.model || "lyria") :
     nodeType === "email" ? `to ${config.to || "…"}` :
     nodeType === "webhook" ? (config.path || "/hook") :
     nodeType === "http" ? `${config.method || "GET"} ${config.url ? "·" : ""} ${(config.url || "").slice(0, 22)}` :
@@ -90,6 +97,8 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
           {run.output && isImageUrl(run.output) ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={run.output} alt="generated" className="mt-1 w-full rounded-md border border-line" />
+          ) : run.output && isAudioUrl(run.output) ? (
+            <audio controls src={run.output} className="nodrag mt-1 w-full" style={{ height: 32 }} />
           ) : run.output ? (
             <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-dim">{run.output}</div>
           ) : null}

@@ -42,6 +42,15 @@ def _as_text(v):
     return v if isinstance(v, str) else json.dumps(v)
 
 
+def _abs_media(url):
+    """Native media endpoints return root-relative paths (/media/...); make them
+    absolute so downstream nodes (HTTP/Slack/email) and the canvas preview work."""
+    if isinstance(url, str) and url.startswith("/"):
+        from llm import BASE
+        return BASE.rsplit("/v1", 1)[0].rstrip("/") + url
+    return url
+
+
 async def exec_node(node, ctx):
     """Run one node. Returns a dict with at least {output}; may add
     {tokens, cost, branch, meta}. `ctx['previous']['output']` is this node's input."""
@@ -309,13 +318,35 @@ async def exec_node(node, ctx):
             url = first if isinstance(first, str) else (first.get("url") or first.get("b64_json"))
         if not url:
             raise RuntimeError(f"image node: no image in response ({str(res)[:120]})")
-        # the relay returns a root-relative media path (/media/...); make it absolute
-        # so downstream nodes (HTTP/Slack/email) and the canvas preview get a real URL.
-        if isinstance(url, str) and url.startswith("/"):
-            from llm import BASE
-            origin = BASE.rsplit("/v1", 1)[0].rstrip("/")
-            url = origin + url
-        return {"output": url, "meta": f"image · {model}"}
+        return {"output": _abs_media(url), "meta": f"image · {model}"}
+
+    if t == "nyquest_speech":
+        model = render(str(data.get("model") or ""), ctx).strip() or "gemini-2.5-flash-preview-tts"
+        text = render(data["text"], ctx) if data.get("text") else _as_text(incoming)
+        text = text.strip()
+        if not text:
+            raise RuntimeError("speech node: empty text")
+        body = {"model": model, "text": text}
+        voice = render(str(data.get("voice", "")), ctx).strip()
+        if voice:
+            body["voice"] = voice
+        res = await post_json("audio/generate", body)
+        url = res.get("audio_url") or res.get("url")
+        if not url:
+            raise RuntimeError(f"speech node: no audio in response ({str(res)[:120]})")
+        return {"output": _abs_media(url), "meta": f"speech · {model}{' · ' + voice if voice else ''}"}
+
+    if t == "nyquest_music":
+        model = render(str(data.get("model") or ""), ctx).strip() or "lyria-3-clip-preview"
+        prompt = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
+        prompt = prompt.strip()
+        if not prompt:
+            raise RuntimeError("music node: empty prompt")
+        res = await post_json("music/generate", {"model": model, "prompt": prompt})
+        url = res.get("audio_url") or res.get("url")
+        if not url:
+            raise RuntimeError(f"music node: no audio in response ({str(res)[:120]})")
+        return {"output": _abs_media(url), "meta": f"music · {model}"}
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}
