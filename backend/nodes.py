@@ -68,15 +68,22 @@ async def exec_node(node, ctx):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user or "(no input)"})
-        text, usage = await chat(
-            model, messages,
-            temperature=float(data.get("temperature", 0.7)),
-            max_tokens=int(data.get("max_tokens", 1024)),
-        )
+        temp = float(data.get("temperature", 0.7))
+        max_t = int(data.get("max_tokens", 1024))
+        used = model
+        try:
+            text, usage = await chat(model, messages, temperature=temp, max_tokens=max_t)
+        except Exception:
+            fb = render(str(data.get("fallback") or ""), ctx).strip()
+            if fb and fb != model:
+                text, usage = await chat(fb, messages, temperature=temp, max_tokens=max_t)
+                used = fb + " (fallback)"
+            else:
+                raise
         return {
             "output": text,
             "tokens": usage.get("total_tokens"),
-            "meta": f"{model} · {usage.get('total_tokens', '?')} tok",
+            "meta": f"{used} · {usage.get('total_tokens', '?')} tok",
         }
 
     if t == "decision":
@@ -272,6 +279,16 @@ async def exec_node(node, ctx):
         ok = r.status_code < 300
         return {"output": message,
                 "meta": f"{'sent' if ok else f'failed {r.status_code}'} · {t}"}
+
+    if t == "merge":
+        parts = incoming if isinstance(incoming, list) else [incoming]
+        parts = [p for p in parts if p is not None]
+        if data.get("mode") == "collect":
+            return {"output": parts, "meta": f"collected {len(parts)}"}
+        sep = data.get("separator")
+        sep = sep if isinstance(sep, str) and sep else "\n\n"
+        texts = [_as_text(p) for p in parts if _as_text(p) != ""]
+        return {"output": sep.join(texts), "meta": f"merged {len(texts)} input(s)"}
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}

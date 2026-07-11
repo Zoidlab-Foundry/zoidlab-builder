@@ -9,7 +9,7 @@ from llm import chat, DEFAULT_MODEL
 
 VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end", "webhook", "summarizer",
                "switch", "foreach", "variable", "email", "model", "classifier", "translator",
-               "extractor", "jsonpath", "delay", "slack", "discord"}
+               "extractor", "jsonpath", "delay", "slack", "discord", "merge", "approval"}
 
 CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - start   entry point.            data: {}
@@ -17,6 +17,8 @@ CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - llm     call a model.           data: {"model":"anthropic/claude-sonnet-5","system":"...","temperature":0.7,"max_tokens":1024}
 - decision  branch true/false.    data: {"mode":"contains|equals|not_empty","value":"..."}  -> two edges, sourceHandle "true" and "false"
 - switch  multi-way branch on text. data: {"mode":"contains","cases":"a\\nb\\nc"} -> one edge per case (sourceHandle = case) + "default"
+- merge   wait for all incoming branches then combine. data: {"mode":"combine|collect"}
+- approval  pause for a human decision. data: {"message":"...","auto":"reject"} -> two edges, sourceHandle "approved" and "rejected"
 - classifier  LLM classify + route. data: {"labels":"a\\nb\\nc","model":"anthropic/claude-haiku-4.5"} -> one edge per label (sourceHandle = label) + "default"
 - summarizer  condense input.     data: {"model":"...","length":"one line|short|detailed"}
 - translator  translate input.    data: {"language":"Spanish","model":"..."}
@@ -76,6 +78,8 @@ ALLOWED = {
     "llm": ["model", "system", "prompt", "temperature", "max_tokens"],
     "decision": ["mode", "value"],
     "switch": ["mode", "cases"],
+    "merge": ["mode", "separator"],
+    "approval": ["message", "timeout_s", "on_timeout", "auto"],
     "classifier": ["labels", "model", "prompt"],
     "summarizer": ["model", "length"],
     "translator": ["language", "model"],

@@ -219,7 +219,7 @@ export async function restoreVersion(vid: string): Promise<Workflow> {
 }
 
 export type RunEvent = {
-  type: "start" | "node" | "done" | "error";
+  type: "start" | "node" | "done" | "error" | "approval";
   nodeId?: string;
   status?: "running" | "complete" | "error";
   output?: string;
@@ -228,7 +228,17 @@ export type RunEvent = {
   meta?: string;
   error?: string;
   nodes?: string[];
+  token?: string;
+  message?: string;
 };
+
+export async function decideApproval(token: string, decision: "approve" | "reject") {
+  await fetch("/api/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, decision }),
+  }).catch(() => {});
+}
 
 // Streams node status events from POST /api/run (SSE over fetch).
 export async function runWorkflow(

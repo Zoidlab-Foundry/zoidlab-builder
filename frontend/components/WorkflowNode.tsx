@@ -37,6 +37,8 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "extractor" ? `${parseCases(config.fields).length} fields` :
     nodeType === "jsonpath" ? (config.path || "(root)") :
     nodeType === "delay" ? `${config.seconds ?? 2}s` :
+    nodeType === "merge" ? (config.mode || "combine") :
+    nodeType === "approval" ? "human decision" :
     nodeType === "slack" || nodeType === "discord" ? (config.webhook_url ? "webhook set" : "dry-run") :
     nodeType === "foreach" ? `over ${config.over || "list"}` :
     nodeType === "variable" ? `${config.name || "name"} =` :

@@ -71,6 +71,9 @@ export const NODE_DEFS: NodeDef[] = [
       { key: "prompt", label: "User prompt override", type: "textarea", placeholder: "Optional. Defaults to the upstream node's output." },
       { key: "temperature", label: "Temperature", type: "slider", min: 0, max: 2, step: 0.1, default: 0.7 },
       { key: "max_tokens", label: "Max tokens", type: "number", default: 1024, min: 1, max: 32000 },
+      { key: "fallback", label: "Fallback model", type: "select", options: [], hint: "Optional. Used if the primary model errors." },
+      { key: "timeout_s", label: "Timeout (s)", type: "number", min: 0, max: 600, hint: "0 = no limit." },
+      { key: "retries", label: "Retries", type: "number", default: 0, min: 0, max: 5, hint: "Retry on failure, with backoff." },
     ],
   },
   {
@@ -118,6 +121,41 @@ export const NODE_DEFS: NodeDef[] = [
       { key: "url", label: "URL", type: "text", placeholder: "https://api.example.com/v1/thing" },
       { key: "headers", label: "Headers", type: "headers" },
       { key: "body", label: "Body", type: "textarea", placeholder: "Optional. Supports {{expressions}}." },
+      { key: "timeout_s", label: "Timeout (s)", type: "number", min: 0, max: 600, hint: "0 = no limit." },
+      { key: "retries", label: "Retries", type: "number", default: 0, min: 0, max: 5, hint: "Retry on failure, with backoff." },
+    ],
+  },
+  {
+    type: "merge",
+    label: "Merge",
+    category: "Logic",
+    accent: "#f4b860",
+    glyph: "⋈",
+    description: "Waits for every incoming branch, then combines their outputs.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "mode", label: "Mode", type: "select", options: ["combine", "collect"], default: "combine", hint: "combine = join text; collect = JSON array." },
+      { key: "separator", label: "Separator", type: "text", default: "\\n\\n", hint: "For combine mode." },
+    ],
+  },
+  {
+    type: "approval",
+    label: "Approval",
+    category: "Human",
+    accent: "#f4b860",
+    glyph: "⏸",
+    description: "Pauses for a human decision, then routes approved / rejected.",
+    hasInput: true,
+    outputs: [
+      { id: "approved", label: "approved", color: "#22c55e" },
+      { id: "rejected", label: "rejected", color: "#ef4444" },
+    ],
+    fields: [
+      { key: "message", label: "Prompt", type: "textarea", default: "Approve to continue?", hint: "Shown to the approver. Supports {{expressions}}." },
+      { key: "timeout_s", label: "Wait timeout (s)", type: "number", default: 300, min: 5, max: 3600 },
+      { key: "on_timeout", label: "On timeout", type: "select", options: ["reject", "approve"], default: "reject" },
+      { key: "auto", label: "Unattended runs", type: "select", options: ["reject", "approve"], default: "reject", hint: "What webhook/scheduled runs do (no human present)." },
     ],
   },
   {
@@ -318,7 +356,7 @@ export const NODE_DEFS: NodeDef[] = [
   },
 ];
 
-export const CATEGORIES = ["Flow", "AI Models", "AI Utilities", "Prompts", "Logic", "Data", "Integrations"];
+export const CATEGORIES = ["Flow", "AI Models", "AI Utilities", "Prompts", "Logic", "Human", "Data", "Integrations"];
 
 export const defByType = (t: string) => NODE_DEFS.find((d) => d.type === t);
 

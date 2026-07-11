@@ -13,7 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useStore } from "../lib/store";
-import { fetchModels, saveWorkflow, runWorkflow, loadWorkflow } from "../lib/api";
+import { fetchModels, saveWorkflow, runWorkflow, loadWorkflow, decideApproval } from "../lib/api";
 import { defByType } from "../lib/catalog";
 import WorkflowNode from "../components/WorkflowNode";
 import NodeLibrary from "../components/NodeLibrary";
@@ -50,6 +50,12 @@ function Builder() {
   const [deployOpen, setDeployOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [secretsOpen, setSecretsOpen] = useState(false);
+  const [approval, setApproval] = useState<{ token: string; message: string; nodeId: string } | null>(null);
+
+  const decide = (decision: "approve" | "reject") => {
+    if (approval) decideApproval(approval.token, decision);
+    setApproval(null);
+  };
   const [user, setUser] = useState<{ email: string; tier: string } | null>(null);
 
   useEffect(() => {
@@ -183,6 +189,7 @@ function Builder() {
     if (s.running) return;
     s.clearRun();
     s.clearEdgeAnim();
+    setApproval(null);
     s.setRunning(true);
     const wf = s.toWorkflow();
     try {
@@ -197,6 +204,10 @@ function Builder() {
             meta: ev.meta,
             error: ev.error,
           });
+          if (ev.status !== "running") setApproval((a) => (a && a.nodeId === ev.nodeId ? null : a));
+        } else if (ev.type === "approval" && ev.nodeId && ev.token) {
+          s.setNodeRun(ev.nodeId, { status: "running", meta: "waiting for approval" });
+          setApproval({ token: ev.token, message: ev.message || "Approve to continue?", nodeId: ev.nodeId });
         } else if (ev.type === "done") {
           s.setFinalOutput(ev.output ?? null);
         } else if (ev.type === "error") {
@@ -352,6 +363,20 @@ function Builder() {
           {toast && (
             <div className="absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-line bg-panel px-4 py-2 text-[12px] text-ink shadow-lg">
               {toast}
+            </div>
+          )}
+
+          {approval && (
+            <div className="absolute left-1/2 top-16 z-30 w-[420px] max-w-[92%] -translate-x-1/2 rounded-2xl border border-warn/40 bg-panel p-4 shadow-2xl">
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="grid h-6 w-6 place-items-center rounded-lg bg-warn/15 text-[13px] text-warn">⏸</span>
+                <span className="text-[13px] font-semibold text-ink">Approval needed</span>
+              </div>
+              <p className="mb-3 whitespace-pre-wrap text-[13px] leading-relaxed text-dim">{approval.message}</p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => decide("reject")} className="rounded-lg border border-line px-4 py-1.5 text-[12px] font-medium text-dim hover:border-bad hover:text-bad">Reject</button>
+                <button onClick={() => decide("approve")} className="rounded-lg bg-ok px-5 py-1.5 text-[12px] font-semibold text-bg hover:opacity-90">Approve</button>
+              </div>
             </div>
           )}
 

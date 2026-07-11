@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 import db
 from schema import Workflow, RunRequest
-from executor import run_workflow
+from executor import run_workflow, resolve_approval
 from llm import list_models, set_relay_auth
 from flowsmith import generate as flowsmith_generate
 from auth import relay_key_from_cookie, session_payload
@@ -271,6 +271,17 @@ def delete_schedule(wid: str, request: Request):
     return {"ok": True}
 
 
+class ApproveRequest(BaseModel):
+    token: str
+    decision: str
+
+
+@app.post("/api/approve")
+def approve(req: ApproveRequest):
+    """Resolve a pending human-approval node during an interactive run."""
+    return {"ok": resolve_approval(req.token, req.decision)}
+
+
 async def _collect(wf: dict, trigger: dict, secrets: dict) -> dict:
     """Run a workflow to completion, collecting (redacted) events into a summary."""
     started = datetime.datetime.utcnow().isoformat() + "Z"
@@ -356,7 +367,7 @@ async def run(req: RunRequest, request: Request):
         t0 = time.time()
         events, status, output, tokens, err = [], "complete", None, 0, None
         try:
-            async for ev in run_workflow(wf, req.trigger, secrets):
+            async for ev in run_workflow(wf, req.trigger, secrets, interactive=True):
                 ev = red(ev)  # never stream a secret back to the UI
                 events.append(ev)
                 if ev.get("type") == "node":
