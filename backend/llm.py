@@ -50,6 +50,16 @@ async def chat(model, messages, temperature=0.7, max_tokens=1024):
         return text, j.get("usage", {}) or {}
 
 
+async def post_json(path, body, timeout=180):
+    """POST to a Nyquest API path (relative to the /v1 base) with per-user auth.
+    Used by native Nyquest nodes (image gen, etc.). Raises on HTTP error."""
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        r = await c.post(f"{BASE}/{path.lstrip('/')}", headers=_headers(), json=body)
+        if r.status_code >= 400:
+            raise RuntimeError(f"nyquest {r.status_code}: {r.text[:200]}")
+        return r.json()
+
+
 async def list_models():
     """Model ids from the relay, for the node config dropdown. Never raises."""
     try:

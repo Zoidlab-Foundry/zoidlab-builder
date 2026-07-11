@@ -9,7 +9,8 @@ from llm import chat, DEFAULT_MODEL
 
 VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end", "webhook", "summarizer",
                "switch", "foreach", "variable", "email", "model", "classifier", "translator",
-               "extractor", "jsonpath", "delay", "slack", "discord", "merge", "approval"}
+               "extractor", "jsonpath", "delay", "slack", "discord", "merge", "approval",
+               "nyquest_image"}
 
 CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - start   entry point.            data: {}
@@ -29,6 +30,7 @@ CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - http    REST call.              data: {"method":"GET|POST|PUT|DELETE","url":"https://...","headers":{},"body":"..."}
 - slack   post via webhook.       data: {"webhook_url":"{{secrets.SLACK_WEBHOOK}}","message":"{{previous.output}}"}
 - discord post via webhook.       data: {"webhook_url":"{{secrets.DISCORD_WEBHOOK}}","message":"{{previous.output}}"}
+- nyquest_image  generate an image (Nyquest/Imagen). data: {"prompt":"a teal robot logo, flat vector","model":"imagen-4.0-fast-generate-001","aspect_ratio":"1:1"} -> output is the image URL
 - email   compose an email.       data: {"to":"...","subject":"...","body":"{{previous.output}}"}
 - webhook inbound trigger.        data: {"path":"/hook/name"}
 - end     terminal output.        data: {}"""
@@ -91,6 +93,7 @@ ALLOWED = {
     "http": ["method", "url", "headers", "body"],
     "slack": ["webhook_url", "message"],
     "discord": ["webhook_url", "message"],
+    "nyquest_image": ["prompt", "model", "aspect_ratio"],
     "email": ["to", "subject", "body"],
     "webhook": ["path"],
     "model": ["model", "var"],

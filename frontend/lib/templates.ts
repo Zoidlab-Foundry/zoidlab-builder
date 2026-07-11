@@ -342,4 +342,24 @@ export const TEMPLATES: Template[] = [
       { id: "e7", source: "log", target: "end" },
     ],
   },
+  {
+    slug: "concept-to-image",
+    name: "Concept → Image",
+    description: "Turn a rough idea into a polished art-direction prompt, then render it with Nyquest image generation.",
+    glyph: "✲",
+    accent: "#2dd4bf",
+    nodes: [
+      { id: "start", type: "start", position: { x: 60, y: 180 }, data: {} },
+      { id: "idea", type: "prompt", position: { x: 300, y: 180 }, data: { template: "a friendly robot mascot for an AI workflow studio, teal and deep-space navy, minimal" } },
+      { id: "direct", type: "llm", position: { x: 560, y: 180 }, data: { model: "anthropic/claude-haiku-4.5", system: "You are an art director. Rewrite the user's idea as a single vivid image-generation prompt: subject, style, palette, lighting, composition. Output only the prompt, one line, no preamble.", prompt: "{{nodes.idea.output}}", temperature: 0.7, max_tokens: 160 } },
+      { id: "render", type: "nyquest_image", position: { x: 840, y: 180 }, data: { prompt: "{{nodes.direct.output}}", model: "imagen-4.0-fast-generate-001", aspect_ratio: "1:1" } },
+      { id: "end", type: "end", position: { x: 1110, y: 180 }, data: {} },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "idea" },
+      { id: "e2", source: "idea", target: "direct" },
+      { id: "e3", source: "direct", target: "render" },
+      { id: "e4", source: "render", target: "end" },
+    ],
+  },
 ];

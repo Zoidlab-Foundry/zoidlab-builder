@@ -340,6 +340,28 @@ export const NODE_DEFS: NodeDef[] = [
     ],
   },
   {
+    type: "nyquest_image",
+    label: "Image",
+    category: "Nyquest",
+    accent: "#2dd4bf",
+    glyph: "✲",
+    description: "Generates an image from a prompt via Nyquest (Imagen). Output is the image URL.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "prompt", label: "Prompt", type: "textarea", default: "{{previous.output}}", placeholder: "A teal robot logo, flat vector on dark…", hint: "Supports {{expressions}}. Defaults to the upstream output." },
+      { key: "model", label: "Model", type: "select", options: [
+        "imagen-4.0-fast-generate-001",
+        "imagen-4.0-generate-001",
+        "imagen-4.0-ultra-generate-001",
+        "google/gemini-2.5-flash-image",
+      ], default: "imagen-4.0-fast-generate-001", hint: "Native Nyquest image models. Billed to your Nyquest wallet." },
+      { key: "aspect_ratio", label: "Aspect ratio", type: "select", options: ["1:1", "16:9", "9:16", "4:3", "3:4"], default: "1:1" },
+      { key: "timeout_s", label: "Timeout (s)", type: "number", default: 120, min: 0, max: 300, hint: "0 = no limit." },
+      { key: "retries", label: "Retries", type: "number", default: 0, min: 0, max: 3, hint: "Retry on failure, with backoff." },
+    ],
+  },
+  {
     type: "email",
     label: "Email",
     category: "Integrations",
@@ -356,7 +378,7 @@ export const NODE_DEFS: NodeDef[] = [
   },
 ];
 
-export const CATEGORIES = ["Flow", "AI Models", "AI Utilities", "Prompts", "Logic", "Human", "Data", "Integrations"];
+export const CATEGORIES = ["Flow", "AI Models", "AI Utilities", "Nyquest", "Prompts", "Logic", "Human", "Data", "Integrations"];
 
 export const defByType = (t: string) => NODE_DEFS.find((d) => d.type === t);
 

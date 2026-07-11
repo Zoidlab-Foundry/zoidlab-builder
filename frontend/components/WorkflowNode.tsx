@@ -3,6 +3,11 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { defByType } from "../lib/catalog";
 import { useStore } from "../lib/store";
 
+const isImageUrl = (v: any) =>
+  typeof v === "string" &&
+  /^https?:\/\/\S+/.test(v) &&
+  (/\.(png|jpe?g|webp|gif|avif)(\?|$)/i.test(v) || /image|imagen|\/generate/i.test(v));
+
 const STATUS_RING: Record<string, string> = {
   running: "#f4b860",   // yellow — active
   complete: "#22c55e",  // green — done
@@ -42,6 +47,7 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "slack" || nodeType === "discord" ? (config.webhook_url ? "webhook set" : "dry-run") :
     nodeType === "foreach" ? `over ${config.over || "list"}` :
     nodeType === "variable" ? `${config.name || "name"} =` :
+    nodeType === "nyquest_image" ? `${config.model || "imagen"} · ${config.aspect_ratio || "1:1"}` :
     nodeType === "email" ? `to ${config.to || "…"}` :
     nodeType === "webhook" ? (config.path || "/hook") :
     nodeType === "http" ? `${config.method || "GET"} ${config.url ? "·" : ""} ${(config.url || "").slice(0, 22)}` :
@@ -81,9 +87,12 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
       {run?.status === "complete" && (run.meta || run.output) && (
         <div className="border-t border-line px-3 py-1.5">
           {run.meta && <div className="text-[9px] uppercase tracking-wider text-cy">{run.meta}</div>}
-          {run.output && (
+          {run.output && isImageUrl(run.output) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={run.output} alt="generated" className="mt-1 w-full rounded-md border border-line" />
+          ) : run.output ? (
             <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-dim">{run.output}</div>
-          )}
+          ) : null}
         </div>
       )}
       {run?.status === "error" && (

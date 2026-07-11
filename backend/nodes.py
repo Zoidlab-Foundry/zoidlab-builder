@@ -8,7 +8,7 @@ import re
 import json
 import asyncio
 import httpx
-from llm import chat, DEFAULT_MODEL
+from llm import chat, post_json, DEFAULT_MODEL
 
 _EXPR = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 
@@ -289,6 +289,33 @@ async def exec_node(node, ctx):
         sep = sep if isinstance(sep, str) and sep else "\n\n"
         texts = [_as_text(p) for p in parts if _as_text(p) != ""]
         return {"output": sep.join(texts), "meta": f"merged {len(texts)} input(s)"}
+
+    if t == "nyquest_image":
+        model = render(str(data.get("model") or ""), ctx).strip() or "imagen-4.0-fast-generate-001"
+        prompt = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
+        prompt = prompt.strip()
+        if not prompt:
+            raise RuntimeError("image node: empty prompt")
+        body = {"model": model, "prompt": prompt}
+        ar = render(str(data.get("aspect_ratio", "")), ctx).strip()
+        if ar:
+            body["aspect_ratio"] = ar
+        res = await post_json("image/generate", body)
+        # response: {"images": [url, ...]} where each item is a url or {"url": ...}
+        imgs = res.get("images") or res.get("data") or []
+        url = None
+        if imgs:
+            first = imgs[0]
+            url = first if isinstance(first, str) else (first.get("url") or first.get("b64_json"))
+        if not url:
+            raise RuntimeError(f"image node: no image in response ({str(res)[:120]})")
+        # the relay returns a root-relative media path (/media/...); make it absolute
+        # so downstream nodes (HTTP/Slack/email) and the canvas preview get a real URL.
+        if isinstance(url, str) and url.startswith("/"):
+            from llm import BASE
+            origin = BASE.rsplit("/v1", 1)[0].rstrip("/")
+            url = origin + url
+        return {"output": url, "meta": f"image · {model}"}
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}
