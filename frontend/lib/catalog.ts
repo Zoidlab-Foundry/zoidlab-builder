@@ -405,6 +405,22 @@ export const NODE_DEFS: NodeDef[] = [
     ],
   },
   {
+    type: "nyquest_agent",
+    label: "Agent",
+    category: "Nyquest",
+    accent: "#2dd4bf",
+    glyph: "◆",
+    description: "Runs a Nyquest multi-step agent (plans, uses tools) toward a goal. Output is the final answer.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "goal", label: "Goal", type: "textarea", default: "{{previous.output}}", placeholder: "Research X and summarize the top 3 findings…", hint: "What the agent should accomplish. Supports {{expressions}}." },
+      { key: "model", label: "Planner model", type: "select", options: [], default: "auto", hint: "Auto lets Nyquest pick. Loaded from the relay." },
+      { key: "max_steps", label: "Max steps", type: "number", default: 6, min: 1, max: 20, hint: "Caps how many plan/tool steps the agent may take (bounds cost & time)." },
+      { key: "timeout_s", label: "Timeout (s)", type: "number", default: 300, min: 10, max: 600, hint: "Overall wall-clock cap for the run." },
+    ],
+  },
+  {
     type: "email",
     label: "Email",
     category: "Integrations",

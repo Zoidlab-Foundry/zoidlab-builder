@@ -10,7 +10,7 @@ from llm import chat, DEFAULT_MODEL
 VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end", "webhook", "summarizer",
                "switch", "foreach", "variable", "email", "model", "classifier", "translator",
                "extractor", "jsonpath", "delay", "slack", "discord", "merge", "approval",
-               "nyquest_image", "nyquest_speech", "nyquest_music"}
+               "nyquest_image", "nyquest_speech", "nyquest_music", "nyquest_agent"}
 
 CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - start   entry point.            data: {}
@@ -33,6 +33,7 @@ CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - nyquest_image  generate an image (Nyquest/Imagen). data: {"prompt":"a teal robot logo, flat vector","model":"imagen-4.0-fast-generate-001","aspect_ratio":"1:1"} -> output is the image URL
 - nyquest_speech  text-to-speech (Nyquest). data: {"text":"{{previous.output}}","model":"gemini-2.5-flash-preview-tts","voice":"Kore"} -> output is the audio URL
 - nyquest_music  generate an instrumental clip (Nyquest/Lyria). data: {"prompt":"calm ambient synth","model":"lyria-3-clip-preview"} -> output is the audio URL
+- nyquest_agent  run a multi-step Nyquest agent (plans + tools) toward a goal. data: {"goal":"{{previous.output}}","model":"auto","max_steps":6} -> output is the agent's final answer
 - email   compose an email.       data: {"to":"...","subject":"...","body":"{{previous.output}}"}
 - webhook inbound trigger.        data: {"path":"/hook/name"}
 - end     terminal output.        data: {}"""
@@ -98,6 +99,7 @@ ALLOWED = {
     "nyquest_image": ["prompt", "model", "aspect_ratio"],
     "nyquest_speech": ["text", "model", "voice"],
     "nyquest_music": ["prompt", "model"],
+    "nyquest_agent": ["goal", "model", "max_steps"],
     "email": ["to", "subject", "body"],
     "webhook": ["path"],
     "model": ["model", "var"],

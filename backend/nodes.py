@@ -8,7 +8,7 @@ import re
 import json
 import asyncio
 import httpx
-from llm import chat, post_json, DEFAULT_MODEL
+from llm import chat, post_json, run_agent, DEFAULT_MODEL
 
 _EXPR = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 
@@ -347,6 +347,31 @@ async def exec_node(node, ctx):
         if not url:
             raise RuntimeError(f"music node: no audio in response ({str(res)[:120]})")
         return {"output": _abs_media(url), "meta": f"music · {model}"}
+
+    if t == "nyquest_agent":
+        goal = render(data["goal"], ctx) if data.get("goal") else _as_text(incoming)
+        goal = goal.strip()
+        if not goal:
+            raise RuntimeError("agent node: empty goal")
+        body = {"goal": goal}
+        model = render(str(data.get("model") or ""), ctx).strip()
+        if model and model != "auto":
+            body["model"] = model
+        try:
+            ms = int(data.get("max_steps") or 0)
+        except Exception:
+            ms = 0
+        if ms > 0:
+            body["max_steps"] = min(ms, 20)  # bound cost/latency
+        res = await run_agent(body)
+        ev = res["final"]
+        content = ev.get("content") or ""
+        cents = ev.get("total_cents")
+        used = ev.get("steps_used")
+        meta = f"agent · {used} step(s)"
+        if isinstance(cents, (int, float)):
+            meta += f" · ${cents / 100:.4f}"
+        return {"output": content, "meta": meta}
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}

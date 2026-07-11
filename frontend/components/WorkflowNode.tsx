@@ -55,6 +55,7 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "nyquest_image" ? `${config.model || "imagen"} · ${config.aspect_ratio || "1:1"}` :
     nodeType === "nyquest_speech" ? `${config.model || "tts"}${config.voice ? " · " + config.voice : ""}` :
     nodeType === "nyquest_music" ? (config.model || "lyria") :
+    nodeType === "nyquest_agent" ? `${config.model || "auto"} · ≤${config.max_steps ?? 6} steps` :
     nodeType === "email" ? `to ${config.to || "…"}` :
     nodeType === "webhook" ? (config.path || "/hook") :
     nodeType === "http" ? `${config.method || "GET"} ${config.url ? "·" : ""} ${(config.url || "").slice(0, 22)}` :

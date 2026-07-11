@@ -382,4 +382,24 @@ export const TEMPLATES: Template[] = [
       { id: "e4", source: "voice", target: "end" },
     ],
   },
+  {
+    slug: "research-agent",
+    name: "Research Agent",
+    description: "Hand a question to a Nyquest multi-step agent, then polish its findings into a tidy brief.",
+    glyph: "◆",
+    accent: "#2dd4bf",
+    nodes: [
+      { id: "start", type: "start", position: { x: 60, y: 180 }, data: {} },
+      { id: "ask", type: "prompt", position: { x: 300, y: 180 }, data: { template: "What are the 3 most important recent developments in small-satellite propulsion, with a one-line why for each?" } },
+      { id: "agent", type: "nyquest_agent", position: { x: 560, y: 180 }, data: { goal: "{{nodes.ask.output}}", model: "auto", max_steps: 6 } },
+      { id: "polish", type: "llm", position: { x: 840, y: 180 }, data: { model: "anthropic/claude-sonnet-5", system: "Format the agent's findings as a clean markdown brief: a one-line summary, then 3 bullet points. Keep it factual and tight.", prompt: "{{nodes.agent.output}}", temperature: 0.3, max_tokens: 500 } },
+      { id: "end", type: "end", position: { x: 1120, y: 180 }, data: {} },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "ask" },
+      { id: "e2", source: "ask", target: "agent" },
+      { id: "e3", source: "agent", target: "polish" },
+      { id: "e4", source: "polish", target: "end" },
+    ],
+  },
 ];

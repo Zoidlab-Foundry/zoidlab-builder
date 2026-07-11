@@ -1,6 +1,7 @@
 """Nyquest relay client — OpenAI-compatible gateway at NYQUEST_BASE_URL.
 All LLM nodes route through here, giving the builder every model Nyquest exposes."""
 import os
+import json
 import httpx
 from contextvars import ContextVar
 
@@ -58,6 +59,45 @@ async def post_json(path, body, timeout=180):
         if r.status_code >= 400:
             raise RuntimeError(f"nyquest {r.status_code}: {r.text[:200]}")
         return r.json()
+
+
+async def run_agent(body, read_timeout=180.0):
+    """POST /v1/agents/run and consume the SSE stream to completion (per-user
+    auth). Returns the terminal 'final' event dict (with content/total_cents/
+    steps_used) plus a 'steps' list of plan/tool_call/observation events.
+    Raises on HTTP failure, an 'error' event, or a stream that ends with no final.
+    read_timeout bounds the gap BETWEEN events (agents emit periodically), not
+    the total run — the executor's timeout_s caps overall wall-clock."""
+    steps = []
+    to = httpx.Timeout(connect=15.0, read=read_timeout, write=30.0, pool=30.0)
+    async with httpx.AsyncClient(timeout=to) as c:
+        async with c.stream("POST", f"{BASE}/agents/run", headers=_headers(), json=body) as r:
+            if r.status_code >= 400:
+                raw = (await r.aread()).decode(errors="replace")[:200]
+                raise RuntimeError(f"agents {r.status_code}: {raw}")
+            buf = ""
+            async for chunk in r.aiter_text():
+                buf += chunk
+                while "\n\n" in buf:
+                    block, buf = buf.split("\n\n", 1)
+                    for line in block.split("\n"):
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if not payload:
+                            continue
+                        try:
+                            ev = json.loads(payload)
+                        except Exception:
+                            continue
+                        et = ev.get("type")
+                        if et in ("plan", "tool_call", "observation"):
+                            steps.append(ev)
+                        elif et == "final":
+                            return {"final": ev, "steps": steps}
+                        elif et == "error":
+                            raise RuntimeError("agent error: " + str(ev.get("message"))[:200])
+    raise RuntimeError("agent stream ended without a final event")
 
 
 async def list_models():
