@@ -421,6 +421,25 @@ export const NODE_DEFS: NodeDef[] = [
     ],
   },
   {
+    type: "nyquest_video",
+    label: "Video",
+    category: "Nyquest",
+    accent: "#2dd4bf",
+    glyph: "▶",
+    description: "Generates an ~8s video from a prompt via Nyquest (Google Veo). Async; output is the video URL.",
+    hasInput: true,
+    outputs: [{ id: null }],
+    fields: [
+      { key: "prompt", label: "Prompt", type: "textarea", default: "{{previous.output}}", placeholder: "A drone shot gliding over neon-lit rain-soaked streets at night…", hint: "Describe the shot. Supports {{expressions}}." },
+      { key: "model", label: "Model", type: "select", options: [
+        "veo-3.1-fast-generate-preview",
+        "veo-3.1-generate-preview",
+      ], default: "veo-3.1-fast-generate-preview", hint: "Veo Fast ≈ $1.44/clip, Veo 3.1 ≈ $3.60/clip. Billed to your Nyquest wallet." },
+      { key: "aspect_ratio", label: "Aspect ratio", type: "select", options: ["16:9", "9:16"], default: "16:9" },
+      { key: "timeout_s", label: "Timeout (s)", type: "number", default: 300, min: 30, max: 600, hint: "How long to wait for the async job before giving up." },
+    ],
+  },
+  {
     type: "email",
     label: "Email",
     category: "Integrations",

@@ -61,6 +61,16 @@ async def post_json(path, body, timeout=180):
         return r.json()
 
 
+async def get_json(path, timeout=30):
+    """GET a Nyquest API path (relative to the /v1 base) with per-user auth.
+    Used to poll async jobs (video). Raises on HTTP error."""
+    async with httpx.AsyncClient(timeout=timeout) as c:
+        r = await c.get(f"{BASE}/{path.lstrip('/')}", headers=_headers())
+        if r.status_code >= 400:
+            raise RuntimeError(f"nyquest {r.status_code}: {r.text[:200]}")
+        return r.json()
+
+
 async def run_agent(body, read_timeout=180.0):
     """POST /v1/agents/run and consume the SSE stream to completion (per-user
     auth). Returns the terminal 'final' event dict (with content/total_cents/

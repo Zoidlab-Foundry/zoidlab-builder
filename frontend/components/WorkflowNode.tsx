@@ -13,6 +13,11 @@ const isAudioUrl = (v: any) =>
   /^https?:\/\/\S+/.test(v) &&
   (/\.(mp3|wav|ogg|m4a|flac)(\?|$)/i.test(v) || /\/(audio|music)\//i.test(v));
 
+const isVideoUrl = (v: any) =>
+  typeof v === "string" &&
+  /^https?:\/\/\S+/.test(v) &&
+  (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(v) || /\/video\//i.test(v));
+
 const STATUS_RING: Record<string, string> = {
   running: "#f4b860",   // yellow — active
   complete: "#22c55e",  // green — done
@@ -56,6 +61,7 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
     nodeType === "nyquest_speech" ? `${config.model || "tts"}${config.voice ? " · " + config.voice : ""}` :
     nodeType === "nyquest_music" ? (config.model || "lyria") :
     nodeType === "nyquest_agent" ? `${config.model || "auto"} · ≤${config.max_steps ?? 6} steps` :
+    nodeType === "nyquest_video" ? `${config.model || "veo"} · ${config.aspect_ratio || "16:9"}` :
     nodeType === "email" ? `to ${config.to || "…"}` :
     nodeType === "webhook" ? (config.path || "/hook") :
     nodeType === "http" ? `${config.method || "GET"} ${config.url ? "·" : ""} ${(config.url || "").slice(0, 22)}` :
@@ -98,6 +104,8 @@ export default function WorkflowNode({ id, data, selected }: NodeProps) {
           {run.output && isImageUrl(run.output) ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={run.output} alt="generated" className="mt-1 w-full rounded-md border border-line" />
+          ) : run.output && isVideoUrl(run.output) ? (
+            <video controls preload="metadata" src={run.output} className="nodrag mt-1 w-full rounded-md border border-line" style={{ background: "#000" }} />
           ) : run.output && isAudioUrl(run.output) ? (
             <audio controls src={run.output} className="nodrag mt-1 w-full" style={{ height: 32 }} />
           ) : run.output ? (

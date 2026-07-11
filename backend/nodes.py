@@ -8,7 +8,7 @@ import re
 import json
 import asyncio
 import httpx
-from llm import chat, post_json, run_agent, DEFAULT_MODEL
+from llm import chat, post_json, get_json, run_agent, DEFAULT_MODEL
 
 _EXPR = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 
@@ -372,6 +372,56 @@ async def exec_node(node, ctx):
         if isinstance(cents, (int, float)):
             meta += f" · ${cents / 100:.4f}"
         return {"output": content, "meta": meta}
+
+    if t == "nyquest_video":
+        prompt = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
+        prompt = prompt.strip()
+        if not prompt:
+            raise RuntimeError("video node: empty prompt")
+        body = {"prompt": prompt}
+        model = render(str(data.get("model") or ""), ctx).strip()
+        if model and model != "auto":
+            body["model"] = model
+        ar = render(str(data.get("aspect_ratio", "")), ctx).strip()
+        if ar:
+            body["aspect_ratio"] = ar
+        try:
+            dur = int(data.get("duration_seconds") or 0)
+        except Exception:
+            dur = 0
+        if dur > 0:
+            body["duration_seconds"] = dur
+        # submit (202 + {job_id, status}); balance is held up front
+        sub = await post_json("video/generate", body)
+        job_id = sub.get("job_id") or sub.get("id")
+        if not job_id:
+            raise RuntimeError(f"video node: no job_id in response ({str(sub)[:120]})")
+        # poll the job until done/failed, self-bounded so we never loop forever
+        try:
+            max_wait = float(data.get("timeout_s") or 300)
+        except Exception:
+            max_wait = 300.0
+        if max_wait <= 0:
+            max_wait = 300.0
+        interval, waited = 6.0, 0.0
+        while True:
+            await asyncio.sleep(interval)
+            waited += interval
+            job = await get_json(f"video/jobs/{job_id}")
+            st = str(job.get("status") or "").lower()
+            if st in ("done", "completed", "succeeded"):
+                url = job.get("video_url") or job.get("url")
+                if not url:
+                    raise RuntimeError("video node: job done but no video_url")
+                cost = job.get("cost")
+                meta = f"video · {job.get('model') or model or 'veo'}"
+                if isinstance(cost, (int, float)):
+                    meta += f" · ${cost:.2f}"
+                return {"output": _abs_media(url), "meta": meta}
+            if st in ("failed", "error", "canceled", "cancelled"):
+                raise RuntimeError("video job failed: " + str(job.get("error") or st)[:200])
+            if waited >= max_wait:
+                raise RuntimeError(f"video node: timed out after {int(waited)}s (job {job_id} still {st or 'running'})")
 
     # unknown node type: pass through so the graph still runs
     return {"output": incoming, "meta": f"passthrough ({t})"}
