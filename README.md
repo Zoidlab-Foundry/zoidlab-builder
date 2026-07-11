@@ -4,6 +4,13 @@
 
 <h1 align="center">ZoidLab · AI Workflow Builder</h1>
 
+<p align="center"><b>Part of the <a href="https://github.com/256kMagic/zoidlab-foundry">ZoidLab platform</a> · Live at <a href="https://builder.zoidlab.ai">builder.zoidlab.ai</a></b></p>
+
+> **Access — Nyquest Pro.** Your Nyquest account is your ZoidLab login (no separate signup).
+> Sign in through Nyquest; a **Pro or Teams** plan unlocks the Builder. One `.zoidlab.ai`
+> session is shared across every ZoidLab app, and workflow runs bill **your own Nyquest wallet**.
+> No account yet? Get one at [app.nyquest.ai](https://app.nyquest.ai).
+
 Visual orchestration platform for Nyquest — drag AI/logic/integration nodes onto a
 canvas, connect them into a DAG, configure, run with live execution highlighting, and
 (soon) deploy. Prototype vertical slice; grows into the full plan in `PLAN.md`.
