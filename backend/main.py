@@ -77,8 +77,54 @@ app.add_middleware(
 )
 
 
+PRO_TIERS = {"pro", "teams", "team", "enterprise"}
+# Public paths — no session required. Everything else under /api requires a Pro session.
+# /hooks/* is the deployed-webhook trigger whose unguessable token IS the credential.
+_PUBLIC_PATHS = ("/api/health", "/api/models")
+_PUBLIC_PREFIXES = ("/hooks/",)
+# SSE streaming endpoints are skipped by the middleware (BaseHTTPMiddleware can buffer
+# streamed responses) and enforce auth inline via require_pro() instead.
+_STREAM_PATHS = ("/api/run",)
+
+
+def _pro_error(request: Request):
+    """Return an HTTP error if the request lacks a valid Nyquest Pro session, else None."""
+    p = session_payload(request.cookies.get("zb_session"))
+    if not p or not p.get("sub"):
+        return JSONResponse({"detail": "sign_in_required"}, status_code=401)
+    if str(p.get("tier") or "").lower() not in PRO_TIERS:
+        return JSONResponse({"detail": "pro_required"}, status_code=403)
+    return None
+
+
+def require_pro(request: Request):
+    """Inline guard for streaming endpoints: raises 401/403 unless the caller is Pro."""
+    p = session_payload(request.cookies.get("zb_session"))
+    if not p or not p.get("sub"):
+        raise HTTPException(status_code=401, detail="sign_in_required")
+    if str(p.get("tier") or "").lower() not in PRO_TIERS:
+        raise HTTPException(status_code=403, detail="pro_required")
+    return p.get("sub")
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    """Backend-enforced Nyquest Pro gate. Ensures a request that reaches the API directly
+    (not just through the frontend proxy) can't act as an anonymous shared-sandbox owner."""
+    path = request.url.path
+    exempt = (request.method == "OPTIONS" or not path.startswith("/api")
+              or path in _PUBLIC_PATHS or path in _STREAM_PATHS
+              or any(path.startswith(p) for p in _PUBLIC_PREFIXES))
+    if not exempt:
+        err = _pro_error(request)
+        if err is not None:
+            return err
+    return await call_next(request)
+
+
 def owner_of(request: Request):
-    """Workflow owner = the Nyquest user id from the session (None = local sandbox)."""
+    """Workflow owner = the Nyquest user id from the session. Behind the auth gate above,
+    every /api endpoint that calls this already has a verified Pro session."""
     p = session_payload(request.cookies.get("zb_session"))
     return p.get("sub") if p else None
 
@@ -360,6 +406,7 @@ async def generate(req: GenerateRequest, request: Request):
 @app.post("/api/run")
 async def run(req: RunRequest, request: Request):
     """Execute a workflow, streaming node status events as SSE."""
+    require_pro(request)  # streaming endpoint — enforced inline (skipped by the middleware)
     wf = req.workflow.model_dump()
     auth = relay_key_from_cookie(request.cookies.get("zb_session"))
     owner = owner_of(request)
