@@ -162,6 +162,42 @@ async def exec_node(node, ctx):
             out = r.text
         return {"output": out, "meta": f"{method} {r.status_code}"}
 
+    # --- Foundry composition: call another ZoidLab app's deployed endpoint ---
+    if t in ("rag_query", "memory_recall", "prompt_run"):
+        url = render(data.get("endpoint", ""), ctx)
+        _ssrf_guard(url)
+        incoming_text = incoming if isinstance(incoming, str) else ""
+        if t == "rag_query":
+            payload = {"question": render(data.get("question", "") or incoming_text, ctx)}
+        elif t == "memory_recall":
+            payload = {"query": render(data.get("query", "") or incoming_text, ctx)}
+        else:
+            raw = data.get("variables")
+            if isinstance(raw, str):
+                try:
+                    variables = json.loads(raw) if raw.strip() else {}
+                except Exception:
+                    variables = {}
+            else:
+                variables = dict(raw or {})
+            payload = {"variables": {k: (render(v, ctx) if isinstance(v, str) else v) for k, v in variables.items()}}
+        async with httpx.AsyncClient(timeout=120, follow_redirects=False) as c:
+            r = await c.post(url, json=payload)
+        try:
+            j = r.json()
+        except Exception:
+            j = {}
+        if t == "rag_query":
+            g = j.get("grounding_score")
+            return {"output": j.get("answer", r.text if not j else j),
+                    "meta": f"RAG {r.status_code}" + (f" · grounding {g}" if g is not None else ""),
+                    "citations": j.get("citations")}
+        if t == "memory_recall":
+            mems = j.get("memories", []) if isinstance(j, dict) else []
+            return {"output": "\n".join(m.get("content", "") for m in mems) or mems,
+                    "meta": f"Memory {r.status_code} · {len(mems)} recalled", "memories": mems}
+        return {"output": j.get("output", r.text if not j else j), "meta": f"Prompt {r.status_code}"}
+
     if t == "webhook":
         return {"output": ctx.get("trigger") or {}, "meta": "webhook trigger"}
 

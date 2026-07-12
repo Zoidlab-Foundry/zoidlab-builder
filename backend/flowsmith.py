@@ -11,7 +11,8 @@ VALID_TYPES = {"start", "prompt", "llm", "decision", "http", "end", "webhook", "
                "switch", "foreach", "variable", "email", "model", "classifier", "translator",
                "extractor", "jsonpath", "delay", "slack", "discord", "merge", "approval",
                "nyquest_image", "nyquest_speech", "nyquest_music", "nyquest_agent",
-               "nyquest_video", "guardrail", "datastore"}
+               "nyquest_video", "guardrail", "datastore",
+               "rag_query", "memory_recall", "prompt_run"}
 
 CATALOG_DOC = """Available node types (use "type" and "data" exactly as shown):
 - start   entry point.            data: {}
@@ -98,6 +99,9 @@ ALLOWED = {
     "delay": ["seconds"],
     "foreach": ["over", "model", "prompt", "max_tokens"],
     "http": ["method", "url", "headers", "body"],
+    "rag_query": ["endpoint", "question"],
+    "memory_recall": ["endpoint", "query"],
+    "prompt_run": ["endpoint", "variables"],
     "slack": ["webhook_url", "message"],
     "discord": ["webhook_url", "message"],
     "nyquest_image": ["prompt", "model", "aspect_ratio"],
