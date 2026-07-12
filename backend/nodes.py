@@ -7,11 +7,46 @@ Template paths resolve against the run context:
 import re
 import json
 import asyncio
+import socket
+import ipaddress
+from urllib.parse import urlparse
 import httpx
 import db
 from llm import chat, post_json, get_json, run_agent, DEFAULT_MODEL
 
 _EXPR = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
+
+
+def _host_is_public(host: str) -> bool:
+    """True only if every address `host` resolves to is a public, routable IP.
+    Blocks loopback / private / link-local (incl. cloud metadata 169.254.169.254) /
+    reserved ranges — the SSRF guard for the HTTP node."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+                or addr.is_multicast or addr.is_unspecified):
+            return False
+    return True
+
+
+def _ssrf_guard(url: str):
+    """Raise ValueError if `url` is not a safe, public http(s) target."""
+    p = urlparse(url)
+    if p.scheme not in ("http", "https"):
+        raise ValueError(f"blocked URL scheme '{p.scheme or 'none'}' — only http/https allowed")
+    if not p.hostname:
+        raise ValueError("HTTP node: missing host in URL")
+    if not _host_is_public(p.hostname):
+        raise ValueError(f"blocked internal/non-public host '{p.hostname}'")
 
 
 def resolve(path, ctx):
@@ -116,7 +151,9 @@ async def exec_node(node, ctx):
         url = render(data.get("url", ""), ctx)
         headers = data.get("headers") or {}
         body = render(data.get("body", ""), ctx) if data.get("body") else None
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as c:
+        _ssrf_guard(url)  # block internal targets (metadata, private ranges)
+        # follow_redirects=False so a 3xx can't bounce past the guard to an internal host
+        async with httpx.AsyncClient(timeout=60, follow_redirects=False) as c:
             r = await c.request(method, url, headers=headers,
                                 content=body.encode() if body else None)
         try:

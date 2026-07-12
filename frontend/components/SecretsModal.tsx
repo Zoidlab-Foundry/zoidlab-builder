@@ -51,8 +51,8 @@ export default function SecretsModal({ open, onClose }: { open: boolean; onClose
           <p className="mb-4 text-[12px] leading-relaxed text-dim">
             Store API keys and tokens once, reference them in any node as
             <code className="mx-1 rounded bg-bg px-1.5 py-0.5 text-[11px] text-cy">{"{{secrets.NAME}}"}</code>
-            (e.g. an HTTP header). Values are <b className="text-ink">encrypted at rest</b>, never
-            returned to the browser, and <b className="text-ink">redacted from run logs</b>.
+            (e.g. an HTTP header). Values are <b className="text-ink">encrypted at rest</b> (Fernet, server-side key),
+            never returned to the browser, and <b className="text-ink">redacted from run logs</b>.
           </p>
 
           <div className="mb-4 flex items-end gap-2">

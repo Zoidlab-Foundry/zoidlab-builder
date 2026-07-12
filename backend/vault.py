@@ -5,11 +5,21 @@ key derived from BUILDER_SESSION_SECRET so dev works). They are decrypted only
 to inject into a run's context and are redacted everywhere they might surface."""
 import os
 import re
+import sys
 import base64
 import hashlib
 from cryptography.fernet import Fernet
 
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
+
+# Encryption is real when VAULT_KEY (or at least BUILDER_SESSION_SECRET) is set. If
+# NEITHER is set the key derives from the public constant "zoidlab-dev" — warn loudly,
+# because "encrypted at rest" would then be effectively unprotected.
+KEY_CONFIGURED = bool(os.environ.get("VAULT_KEY") or os.environ.get("BUILDER_SESSION_SECRET"))
+if not KEY_CONFIGURED:
+    print("[builder] WARNING: neither VAULT_KEY nor BUILDER_SESSION_SECRET is set — the "
+          "secrets vault is using a PUBLIC derived key. Set VAULT_KEY before storing real "
+          "secrets; 'encrypted at rest' is not meaningful otherwise.", file=sys.stderr)
 
 
 def valid_name(name: str) -> bool:

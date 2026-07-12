@@ -64,9 +64,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0", lifespan=lifespan)
 
+import os as _os
+_ALLOWED_ORIGINS = [o.strip() for o in _os.environ.get(
+    "BUILDER_ALLOWED_ORIGINS",
+    "https://builder.zoidlab.ai,https://foundry.zoidlab.ai,https://zoidlab.ai"
+).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

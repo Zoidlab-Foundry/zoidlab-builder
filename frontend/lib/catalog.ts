@@ -175,12 +175,10 @@ export const NODE_DEFS: NodeDef[] = [
     category: "Flow",
     accent: "#4fd1c5",
     glyph: "⇥",
-    description: "Inbound trigger. Starts the workflow with the request payload.",
+    description: "Inbound trigger. Starts the workflow with the request payload. The public webhook URL is generated for you when you deploy (Deploy → webhook) — it isn't configurable here.",
     hasInput: false,
     outputs: [{ id: null }],
-    fields: [
-      { key: "path", label: "Listen path", type: "text", default: "/hook/my-workflow", hint: "Where this workflow will accept requests once deployed." },
-    ],
+    fields: [],
   },
   {
     type: "summarizer",
