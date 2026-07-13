@@ -50,7 +50,7 @@ async def scheduler_loop():
                     res = await _collect(wf, {}, db.secrets_map(owner), owner)
                     db.log_run(wid, owner, "schedule", res)
                     try:
-                        await foundry.emit_spend(res.get("events"), wf.get("name"))
+                        await foundry.emit_spend(res.get("events"), wf, source="schedule")
                     except Exception:
                         pass
                 except Exception as ex:
@@ -521,7 +521,7 @@ async def hook_trigger(token: str, request: Request):
     res = await _collect(dep["workflow"], trigger, db.secrets_map(dep["owner"]), dep["owner"])
     db.log_run(dep["workflow"]["id"], dep["owner"], "webhook", res)
     try:
-        await foundry.emit_spend(res.get("events"), dep["workflow"].get("name"))
+        await foundry.emit_spend(res.get("events"), dep["workflow"], source="webhook")
     except Exception:
         pass
     return JSONResponse(
@@ -610,7 +610,7 @@ async def run(req: RunRequest, request: Request):
             except Exception:
                 pass
             try:
-                n = await foundry.emit_spend(events, wf.get("name"))
+                n = await foundry.emit_spend(events, wf, source="editor")
                 if n:
                     yield f"data: {json.dumps({'type': 'foundry', 'spendguard_events': n})}\n\n"
             except Exception:

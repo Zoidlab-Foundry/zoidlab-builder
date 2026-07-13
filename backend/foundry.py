@@ -13,6 +13,7 @@ best-effort and never break a workflow run.
 """
 import os
 import time
+import uuid
 import datetime
 import jwt
 import httpx
@@ -51,9 +52,9 @@ def available():
 
 
 # --- SpendGuard: emit real usage from a completed run ----------------------
-def spend_events_from(events, app="builder", feature=""):
-    """Build SpendGuard usage events from a run's node events. Only LLM calls with a
-    known model + token split are emitted (SpendGuard prices them from real tokens)."""
+def spend_events_from(events, feature="", environment="production", correlation_id=None, resource_ref=None):
+    """Build canonical SpendGuard usage events (blueprint §6.3) from a run's node events.
+    Only LLM calls with a known model + token split are emitted (priced from real tokens)."""
     out = []
     for ev in events or []:
         if not isinstance(ev, dict) or ev.get("type") != "node":
@@ -67,16 +68,26 @@ def spend_events_from(events, app="builder", feature=""):
         if pt <= 0 and ct <= 0:
             continue
         out.append({"model": model, "prompt_tokens": pt, "completion_tokens": ct,
-                    "app": app, "feature": feature or (ev.get("nodeId") or ""),
-                    "source": "builder", "latency_ms": ev.get("ms")})
+                    "app": "builder", "feature": feature or (ev.get("nodeId") or ""),
+                    "source": "builder", "latency_ms": ev.get("ms"),
+                    "environment": environment, "correlation_id": correlation_id,
+                    "resource_ref": resource_ref})
     return out
 
 
-async def emit_spend(events, workflow_name=""):
-    """POST the run's LLM usage to SpendGuard. Best-effort; returns count emitted."""
+async def emit_spend(events, workflow=None, source="editor"):
+    """POST the run's LLM usage to SpendGuard as canonical usage events. Best-effort."""
     if not available():
         return 0
-    payload = spend_events_from(events, feature=(workflow_name or "")[:60])
+    wf = workflow or {}
+    # editor runs are development; unattended (webhook/schedule) are production
+    environment = "production" if source in ("webhook", "schedule") else "development"
+    correlation_id = "run_" + uuid.uuid4().hex[:12]
+    resource_ref = {"package_id": "builder", "resource_id": wf.get("id"),
+                    "resource_type": "workflow"} if wf.get("id") else None
+    payload = spend_events_from(events, feature=(wf.get("name") or "")[:60],
+                                environment=environment, correlation_id=correlation_id,
+                                resource_ref=resource_ref)
     if not payload:
         return 0
     try:
