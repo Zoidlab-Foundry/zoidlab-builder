@@ -32,6 +32,14 @@ def _usage_cost(usage):
     return cost
 
 
+def _um(usage):
+    """Compact usage for cross-app spend emission: resolved model + token split."""
+    if not usage:
+        return None
+    return {"model": usage.get("model"), "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens")}
+
+
 def _host_is_public(host: str) -> bool:
     """True only if every address `host` resolves to is a public, routable IP.
     Blocks loopback / private / link-local (incl. cloud metadata 169.254.169.254) /
@@ -144,8 +152,31 @@ async def exec_node(node, ctx):
             "output": text,
             "tokens": usage.get("total_tokens"),
             "cost": _usage_cost(usage),
+            "usage": _um(usage),
             "meta": f"{used} · {usage.get('total_tokens', '?')} tok",
         }
+
+    if t == "trustgate":
+        import foundry
+        subject = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
+        model = render(str(data.get("model") or ""), ctx) or "auto"
+        action = {
+            "prompt": subject or "",
+            "model": model, "provider": (model.split("/")[0] if "/" in model else None),
+            "data_classification": data.get("data_classification") or "internal",
+            "max_tokens": int(data.get("max_tokens") or 0) or None,
+            "context_type": data.get("context_type") or None,
+        }
+        res = await foundry.trustgate_check(action, project_id=(data.get("project_id") or None))
+        decision = res.get("decision", "skipped")
+        blocked = decision in ("blocked", "require_approval")
+        branch = "block" if blocked else "allow"
+        reasons = res.get("reasons") or []
+        return {"output": {"decision": decision, "risk_level": res.get("risk_level"),
+                           "reasons": reasons, "recommended_action": res.get("recommended_action"),
+                           "allowed": not blocked, "input": subject},
+                "branch": branch,
+                "meta": f"TrustGate: {decision}" + (f" · {reasons[0][:60]}" if reasons else "")}
 
     if t == "decision":
         mode = data.get("mode", "contains")
@@ -243,7 +274,7 @@ async def exec_node(node, ctx):
              {"role": "user", "content": _as_text(incoming) or "(no input)"}],
             temperature=0.3, max_tokens=600,
         )
-        return {"output": out, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"summarized · {model}"}
+        return {"output": out, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "usage": _um(usage), "meta": f"summarized · {model}"}
 
     if t == "email":
         to = render(data.get("to", ""), ctx)
@@ -283,7 +314,7 @@ async def exec_node(node, ctx):
             items = [ln for ln in _as_text(raw).splitlines() if ln.strip()]
         items = items[:20]  # bound the fan-out
         results = []
-        tok, cost = 0, 0.0
+        tok, cost, pt, ct, used_model = 0, 0.0, 0, 0, None
         for it in items:
             local = dict(ctx)
             local["item"] = it
@@ -293,7 +324,11 @@ async def exec_node(node, ctx):
             results.append(out)
             tok += usage.get("total_tokens") or 0
             cost += _usage_cost(usage)
-        return {"output": results, "tokens": tok or None, "cost": cost, "meta": f"mapped {len(results)} item(s)"}
+            pt += usage.get("prompt_tokens") or 0
+            ct += usage.get("completion_tokens") or 0
+            used_model = usage.get("model") or used_model
+        usage_brief = {"model": used_model, "prompt_tokens": pt, "completion_tokens": ct} if used_model else None
+        return {"output": results, "tokens": tok or None, "cost": cost, "usage": usage_brief, "meta": f"mapped {len(results)} item(s)"}
 
     if t == "delay":
         try:
@@ -339,7 +374,7 @@ async def exec_node(node, ctx):
         low = text.strip().lower()
         matched = next((l for l in labels if l.lower() in low), "default")
         return {"output": incoming, "branch": matched,
-                "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"→ {matched}"}
+                "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "usage": _um(usage), "meta": f"→ {matched}"}
 
     if t == "translator":
         model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
@@ -350,7 +385,7 @@ async def exec_node(node, ctx):
              {"role": "user", "content": _as_text(incoming) or "(no input)"}],
             temperature=0.2, max_tokens=1200,
         )
-        return {"output": text, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"→ {lang}"}
+        return {"output": text, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "usage": _um(usage), "meta": f"→ {lang}"}
 
     if t == "extractor":
         model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
@@ -366,9 +401,9 @@ async def exec_node(node, ctx):
         try:
             start = text.find("{")
             obj, _ = json.JSONDecoder().raw_decode(text[start:])
-            return {"output": obj, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"extracted {len(keys)} field(s)"}
+            return {"output": obj, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "usage": _um(usage), "meta": f"extracted {len(keys)} field(s)"}
         except Exception:
-            return {"output": text, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": "extracted (unparsed)"}
+            return {"output": text, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "usage": _um(usage), "meta": "extracted (unparsed)"}
 
     if t in ("slack", "discord"):
         url = render(str(data.get("webhook_url", "")), ctx).strip()

@@ -498,6 +498,25 @@ export const NODE_DEFS: NodeDef[] = [
     ],
   },
   {
+    type: "trustgate",
+    label: "TrustGate Policy",
+    category: "AI Utilities",
+    accent: "#7c5cfc",
+    glyph: "⛨",
+    description: "Checks the action against your live TrustGate policies (deterministic engine) and routes allow / block. Real cross-app enforcement.",
+    hasInput: true,
+    outputs: [
+      { id: "allow", label: "allow", color: "#22c55e" },
+      { id: "block", label: "block", color: "#ef4444" },
+    ],
+    fields: [
+      { key: "prompt", label: "Action / prompt", type: "textarea", placeholder: "Optional. Defaults to the upstream node's output — the AI action to check." },
+      { key: "model", label: "Model", type: "select", options: [], default: "auto", hint: "The model this action would use (checked against model-access policies)." },
+      { key: "data_classification", label: "Data class", type: "select", options: ["public", "internal", "confidential", "pii"], default: "internal" },
+      { key: "project_id", label: "TrustGate project id", type: "text", placeholder: "Optional. Blank = all your active policies.", hint: "From TrustGate → a project. Blank checks every active policy." },
+    ],
+  },
+  {
     type: "datastore",
     label: "Data Store",
     category: "Data",

@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import db
 import orgs
 import analyzer
+import foundry
 from schema import Workflow, RunRequest
 from executor import run_workflow, resolve_approval
 from llm import list_models, set_relay_auth
@@ -44,9 +45,14 @@ async def scheduler_loop():
                         _c.execute("DELETE FROM schedules WHERE workflow_id=?", (wid,))
                     continue
                 set_relay_auth(sch.get("relay_key"))
+                foundry.set_session(foundry.mint_session(owner))
                 try:
                     res = await _collect(wf, {}, db.secrets_map(owner), owner)
                     db.log_run(wid, owner, "schedule", res)
+                    try:
+                        await foundry.emit_spend(res.get("events"), wf.get("name"))
+                    except Exception:
+                        pass
                 except Exception as ex:
                     db.log_run(wid, owner, "schedule",
                                {"status": "error", "error": str(ex), "events": [],
@@ -511,8 +517,13 @@ async def hook_trigger(token: str, request: Request):
         trigger = {"payload": trigger}
 
     set_relay_auth(dep["relay_key"])  # bill the deployer's own wallet
+    foundry.set_session(foundry.mint_session(dep["owner"]))  # unattended: mint a session for cross-app calls
     res = await _collect(dep["workflow"], trigger, db.secrets_map(dep["owner"]), dep["owner"])
     db.log_run(dep["workflow"]["id"], dep["owner"], "webhook", res)
+    try:
+        await foundry.emit_spend(res.get("events"), dep["workflow"].get("name"))
+    except Exception:
+        pass
     return JSONResponse(
         {"ok": res["status"] == "complete", "workflow": dep["workflow"]["name"],
          "status": res["status"], "output": res["output"],
@@ -562,13 +573,15 @@ async def run(req: RunRequest, request: Request):
     """Execute a workflow, streaming node status events as SSE."""
     require_pro(request)  # streaming endpoint — enforced inline (skipped by the middleware)
     wf = req.workflow.model_dump()
-    auth = relay_key_from_cookie(request.cookies.get("zb_session"))
+    cookie = request.cookies.get("zb_session")
+    auth = relay_key_from_cookie(cookie)
     owner = owner_of(request)
     secrets = db.secrets_map(owner)
     red = vault.make_redactor(secrets.values())
 
     async def gen():
         set_relay_auth(auth)  # bill the logged-in user's own Nyquest wallet
+        foundry.set_session(cookie)  # forward the caller's session for cross-app (TrustGate/SpendGuard) calls
         started = datetime.datetime.utcnow().isoformat() + "Z"
         t0 = time.time()
         events, status, output, tokens, err = [], "complete", None, 0, None
@@ -594,6 +607,12 @@ async def run(req: RunRequest, request: Request):
                            {"status": status, "output": output, "tokens": tokens or None,
                             "error": err, "ms": int((time.time() - t0) * 1000),
                             "started_at": started, "events": events})
+            except Exception:
+                pass
+            try:
+                n = await foundry.emit_spend(events, wf.get("name"))
+                if n:
+                    yield f"data: {json.dumps({'type': 'foundry', 'spendguard_events': n})}\n\n"
             except Exception:
                 pass
 

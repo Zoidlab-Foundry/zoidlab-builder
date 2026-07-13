@@ -177,7 +177,7 @@ async def run_workflow(wf: dict, trigger: dict, secrets: dict | None = None, int
                 yield {"type": "node", "nodeId": nid, "status": "complete",
                        "output": _preview(output), "ms": ms,
                        "tokens": result.get("tokens"), "cost": result.get("cost"),
-                       "meta": result.get("meta")}
+                       "usage": result.get("usage"), "meta": result.get("meta")}
             done.add(nid)
             for e in out_edges.get(nid, []):
                 if branch is not None and e.get("sourceHandle") != branch:
