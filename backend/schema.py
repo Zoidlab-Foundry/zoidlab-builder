@@ -30,6 +30,7 @@ class Workflow(BaseModel):
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
     updated_at: Optional[str] = None
+    org_id: Optional[str] = None  # placement in an organization (RBAC-shared) when set
 
 
 class RunRequest(BaseModel):

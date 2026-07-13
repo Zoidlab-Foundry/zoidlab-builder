@@ -12,9 +12,24 @@ import ipaddress
 from urllib.parse import urlparse
 import httpx
 import db
+import pricing
 from llm import chat, post_json, get_json, run_agent, DEFAULT_MODEL
 
 _EXPR = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
+
+
+def _usage_cost(usage):
+    """USD cost of one relay call from its usage dict (model + token split). 0.0 when the
+    model is unpriced or 'auto' (unknowable) — the run is flagged partial in that case."""
+    if not usage:
+        return 0.0
+    pt = usage.get("prompt_tokens")
+    ct = usage.get("completion_tokens")
+    if pt is None and ct is None:
+        # only a total is known — split can't be priced accurately; treat as unpriced
+        return 0.0
+    cost, _ = pricing.cost_usd(usage.get("model"), pt or 0, ct or 0)
+    return cost
 
 
 def _host_is_public(host: str) -> bool:
@@ -128,6 +143,7 @@ async def exec_node(node, ctx):
         return {
             "output": text,
             "tokens": usage.get("total_tokens"),
+            "cost": _usage_cost(usage),
             "meta": f"{used} · {usage.get('total_tokens', '?')} tok",
         }
 
@@ -227,7 +243,7 @@ async def exec_node(node, ctx):
              {"role": "user", "content": _as_text(incoming) or "(no input)"}],
             temperature=0.3, max_tokens=600,
         )
-        return {"output": out, "tokens": usage.get("total_tokens"), "meta": f"summarized · {model}"}
+        return {"output": out, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"summarized · {model}"}
 
     if t == "email":
         to = render(data.get("to", ""), ctx)
@@ -267,14 +283,17 @@ async def exec_node(node, ctx):
             items = [ln for ln in _as_text(raw).splitlines() if ln.strip()]
         items = items[:20]  # bound the fan-out
         results = []
+        tok, cost = 0, 0.0
         for it in items:
             local = dict(ctx)
             local["item"] = it
             p = render(data.get("prompt", "{{item}}"), local)
-            out, _ = await chat(model, [{"role": "user", "content": p or _as_text(it)}],
-                                temperature=0.4, max_tokens=int(data.get("max_tokens", 300)))
+            out, usage = await chat(model, [{"role": "user", "content": p or _as_text(it)}],
+                                    temperature=0.4, max_tokens=int(data.get("max_tokens", 300)))
             results.append(out)
-        return {"output": results, "meta": f"mapped {len(results)} item(s)"}
+            tok += usage.get("total_tokens") or 0
+            cost += _usage_cost(usage)
+        return {"output": results, "tokens": tok or None, "cost": cost, "meta": f"mapped {len(results)} item(s)"}
 
     if t == "delay":
         try:
@@ -320,7 +339,7 @@ async def exec_node(node, ctx):
         low = text.strip().lower()
         matched = next((l for l in labels if l.lower() in low), "default")
         return {"output": incoming, "branch": matched,
-                "tokens": usage.get("total_tokens"), "meta": f"→ {matched}"}
+                "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"→ {matched}"}
 
     if t == "translator":
         model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
@@ -331,7 +350,7 @@ async def exec_node(node, ctx):
              {"role": "user", "content": _as_text(incoming) or "(no input)"}],
             temperature=0.2, max_tokens=1200,
         )
-        return {"output": text, "tokens": usage.get("total_tokens"), "meta": f"→ {lang}"}
+        return {"output": text, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"→ {lang}"}
 
     if t == "extractor":
         model = render(str(data.get("model") or ""), ctx) or DEFAULT_MODEL
@@ -347,9 +366,9 @@ async def exec_node(node, ctx):
         try:
             start = text.find("{")
             obj, _ = json.JSONDecoder().raw_decode(text[start:])
-            return {"output": obj, "tokens": usage.get("total_tokens"), "meta": f"extracted {len(keys)} field(s)"}
+            return {"output": obj, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": f"extracted {len(keys)} field(s)"}
         except Exception:
-            return {"output": text, "tokens": usage.get("total_tokens"), "meta": "extracted (unparsed)"}
+            return {"output": text, "tokens": usage.get("total_tokens"), "cost": _usage_cost(usage), "meta": "extracted (unparsed)"}
 
     if t in ("slack", "discord"):
         url = render(str(data.get("webhook_url", "")), ctx).strip()

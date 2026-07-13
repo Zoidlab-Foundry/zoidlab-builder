@@ -48,7 +48,11 @@ async def chat(model, messages, temperature=0.7, max_tokens=1024):
             raise RuntimeError(f"relay {r.status_code}: {r.text[:300]}")
         j = r.json()
         text = (j.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        return text, j.get("usage", {}) or {}
+        usage = j.get("usage", {}) or {}
+        # Surface the model the relay actually used (important for "auto" routing) so
+        # cost can be computed downstream. OpenAI-compatible responses echo `model`.
+        usage.setdefault("model", j.get("model") or model)
+        return text, usage
 
 
 async def post_json(path, body, timeout=180):

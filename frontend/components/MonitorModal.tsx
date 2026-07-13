@@ -64,9 +64,14 @@ export default function MonitorModal({ open, onClose }: { open: boolean; onClose
             <div className="grid grid-cols-4 gap-3 px-5 pt-4">
               <Tile label="Runs" value={String(stats?.total ?? 0)} sub={stats ? `${stats.failed} failed` : ""} />
               <Tile label="Success" value={stats?.success_rate != null ? `${stats.success_rate}%` : "—"} sub={stats ? `${stats.ok} ok` : ""} />
-              <Tile label="Tokens" value={fmtTok(stats?.tokens ?? 0)} sub="total" />
-              <Tile label="Avg runtime" value={fmtMs(stats?.avg_ms ?? 0)} sub="per run" />
+              <Tile label="Est. cost" value={`$${(stats?.cost_usd ?? 0).toFixed(4)}`} sub={`${fmtTok(stats?.tokens ?? 0)} tok · ${fmtMs(stats?.avg_ms ?? 0)} avg`} />
+              <Tile label="Cost / run" value={stats && stats.total ? `$${(stats.cost_usd / stats.total).toFixed(4)}` : "—"} sub="list-price est." />
             </div>
+            {stats && stats.cost_partial_runs > 0 && (
+              <div className="mx-5 mt-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-1.5 text-[11px] text-warn">
+                {stats.cost_partial_runs} run{stats.cost_partial_runs > 1 ? "s" : ""} used <b>auto</b>-routed or unpriced models — those tokens aren't in the cost estimate. Cost uses published list prices and may differ from actual billing.
+              </div>
+            )}
 
             {/* 14-day activity */}
             {stats && stats.days.length > 0 && (
@@ -78,6 +83,25 @@ export default function MonitorModal({ open, onClose }: { open: boolean; onClose
                       <div className="w-full rounded-sm bg-cy/70" style={{ height: Math.max(3, (d.n / maxDay) * 40) }} />
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* cost by workflow */}
+            {stats && stats.by_workflow && stats.by_workflow.some((w) => w.cost > 0) && (
+              <div className="px-5 pt-4">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-dim">Cost by workflow</div>
+                <div className="flex flex-col gap-1">
+                  {stats.by_workflow.filter((w) => w.cost > 0).map((w) => {
+                    const max = Math.max(...stats.by_workflow.map((x) => x.cost), 0.0001);
+                    return (
+                      <div key={w.workflow_id} className="flex items-center gap-2">
+                        <span className="w-40 shrink-0 truncate text-[12px] text-ink">{w.name}</span>
+                        <div className="h-2 flex-1 rounded bg-line/50"><div className="h-2 rounded bg-cy" style={{ width: `${(w.cost / max) * 100}%` }} /></div>
+                        <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-dim">${w.cost.toFixed(4)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -97,6 +121,7 @@ export default function MonitorModal({ open, onClose }: { open: boolean; onClose
                   <span className="shrink-0 rounded bg-line px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-dim">{r.source}</span>
                   <span className="w-14 shrink-0 text-right text-[11px] tabular-nums text-dim">{fmtMs(r.ms)}</span>
                   <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-dim">{r.tokens ? fmtTok(r.tokens) : "—"}</span>
+                  <span className="w-14 shrink-0 text-right text-[11px] tabular-nums text-dim">{(r as any).cost_usd ? `$${(r as any).cost_usd.toFixed(3)}` : "—"}</span>
                   <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-dim/70">{ago(r.started_at)}</span>
                 </button>
               ))}
@@ -109,7 +134,7 @@ export default function MonitorModal({ open, onClose }: { open: boolean; onClose
               <span className="h-2.5 w-2.5 rounded-full" style={{ background: STATUS_COLOR[sel.status] || "#565b6e" }} />
               <span className="text-[15px] font-semibold text-ink">{sel.workflow_name}</span>
               <span className="rounded bg-line px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-dim">{sel.source}</span>
-              <span className="ml-auto text-[11px] text-dim">{fmtMs(sel.ms)} · {sel.tokens ? fmtTok(sel.tokens) + " tok" : "—"} · {ago(sel.started_at)}</span>
+              <span className="ml-auto text-[11px] text-dim">{fmtMs(sel.ms)} · {sel.tokens ? fmtTok(sel.tokens) + " tok" : "—"}{sel.cost_usd ? ` · $${sel.cost_usd.toFixed(4)}` : ""} · {ago(sel.started_at)}</span>
             </div>
 
             {sel.error && (

@@ -110,9 +110,12 @@ export interface Stats {
   failed: number;
   success_rate: number | null;
   tokens: number;
+  cost_usd: number;
+  cost_partial_runs: number;
   avg_ms: number;
   by_source: Record<string, number>;
-  days: { d: string; n: number; ok: number }[];
+  by_workflow: { workflow_id: string; name: string; runs: number; cost: number; tokens: number }[];
+  days: { d: string; n: number; ok: number; cost: number }[];
 }
 
 export async function getStats(): Promise<Stats | null> {
@@ -231,6 +234,69 @@ export type RunEvent = {
   token?: string;
   message?: string;
 };
+
+// --- organizations + RBAC ---
+export type Role = "viewer" | "editor" | "admin" | "owner";
+
+export interface OrgSummary {
+  id: string; name: string; role: Role; members: number; workflows: number; created_at: string;
+}
+export interface OrgMember {
+  id: string; user_id: string | null; email: string | null; role: Role; status: string; created_at: string;
+}
+export interface OrgDetail extends OrgSummary { members: any; }
+
+export async function listOrgs(): Promise<OrgSummary[]> {
+  const r = await fetch("/api/orgs");
+  return r.ok ? (await r.json()).orgs || [] : [];
+}
+export async function createOrg(name: string): Promise<OrgSummary> {
+  const r = await fetch("/api/orgs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  if (!r.ok) throw new Error("Could not create org");
+  return (await r.json()).org;
+}
+export async function getOrg(oid: string): Promise<any> {
+  const r = await fetch(`/api/orgs/${oid}`);
+  if (!r.ok) throw new Error("Org not found");
+  return r.json();
+}
+export async function renameOrg(oid: string, name: string) {
+  const r = await fetch(`/api/orgs/${oid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  if (!r.ok) throw new Error("Only an owner can rename the org");
+  return r.json();
+}
+export async function deleteOrg(oid: string) {
+  const r = await fetch(`/api/orgs/${oid}`, { method: "DELETE" });
+  if (!r.ok) throw new Error("Only an owner can delete the org");
+}
+export async function addMember(oid: string, email: string, role: Role) {
+  const r = await fetch(`/api/orgs/${oid}/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, role }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || "Could not add member"); }
+  return r.json();
+}
+export async function updateMember(oid: string, mid: string, role: Role) {
+  const r = await fetch(`/api/orgs/${oid}/members/${mid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || "Could not update role"); }
+  return r.json();
+}
+export async function removeMember(oid: string, mid: string) {
+  const r = await fetch(`/api/orgs/${oid}/members/${mid}`, { method: "DELETE" });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.detail || "Could not remove member"); }
+}
+export async function moveWorkflow(id: string, orgId: string | null) {
+  const r = await fetch(`/api/workflows/${id}/move`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ org_id: orgId }) });
+  if (!r.ok) throw new Error("Could not move workflow");
+  return r.json();
+}
+
+export interface AuditEntry {
+  id: string; actor_user_id: string | null; org_id: string | null;
+  entity_type: string; entity_id: string; action: string; details: any; created_at: string;
+}
+export async function listAudit(orgId?: string): Promise<AuditEntry[]> {
+  const r = await fetch("/api/audit" + (orgId ? `?org_id=${orgId}` : ""));
+  return r.ok ? (await r.json()).audit || [] : [];
+}
 
 export async function decideApproval(token: string, decision: "approve" | "reject") {
   await fetch("/api/approve", {

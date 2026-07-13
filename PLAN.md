@@ -1,6 +1,6 @@
 # ZoidLab · AI Workflow Builder — Project Plan
 
-**Status:** Phase-1 vertical slice **live** at https://builder.zoidlab.ai · **Updated:** 2026-07-06
+**Status:** Phases 1–3 **complete & live** at https://builder.zoidlab.ai · Phase 4 partial (Flowsmith + native Nyquest nodes shipped; auto-optimization pending) · **Updated:** 2026-07-13
 
 ---
 

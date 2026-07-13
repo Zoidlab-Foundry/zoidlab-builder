@@ -1,12 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
-import { listWorkflows, deleteWorkflow, renameWorkflow, cloneWorkflow } from "../lib/api";
+import { listWorkflows, deleteWorkflow, renameWorkflow, cloneWorkflow, listOrgs, moveWorkflow, type OrgSummary } from "../lib/api";
 
 interface Row {
   id: string;
   name: string;
   updated_at: string;
+  org_id?: string | null;
+  role?: string;
 }
+
+const RANK: Record<string, number> = { viewer: 1, editor: 2, admin: 3, owner: 4 };
 
 function ago(iso: string): string {
   if (!iso) return "";
@@ -33,10 +37,12 @@ export default function WorkflowsModal({
   currentId: string;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
+  const [orgs, setOrgs] = useState<OrgSummary[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [moving, setMoving] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -45,8 +51,15 @@ export default function WorkflowsModal({
   };
 
   useEffect(() => {
-    if (open) { setQ(""); setEditing(null); refresh(); }
+    if (open) { setQ(""); setEditing(null); setMoving(null); refresh(); listOrgs().then(setOrgs).catch(() => {}); }
   }, [open]);
+
+  const editableOrgs = orgs.filter((o) => RANK[o.role] >= RANK.editor);
+  const orgName = (id?: string | null) => orgs.find((o) => o.id === id)?.name || "Org";
+  const doMove = async (id: string, orgId: string | null) => {
+    setMoving(null);
+    try { await moveWorkflow(id, orgId); refresh(); } catch (e: any) { alert(e.message); }
+  };
 
   if (!open) return null;
 
@@ -112,13 +125,26 @@ export default function WorkflowsModal({
                 <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => { onOpen(r.id); onClose(); }}>
                   <span className="truncate text-[13px] text-ink">{r.name}</span>
                   {r.id === currentId && <span className="rounded bg-cy/20 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-cy">OPEN</span>}
+                  {r.org_id && <span className="rounded bg-vi/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-ind" title={`Shared in ${orgName(r.org_id)} · your role: ${r.role}`}>⛬ {orgName(r.org_id)}{r.role && r.role !== "owner" ? ` · ${r.role}` : ""}</span>}
                 </button>
               )}
               <span className="shrink-0 text-[11px] tabular-nums text-dim/70">{ago(r.updated_at)}</span>
-              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="relative flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                {(editableOrgs.length > 0 || r.org_id) && RANK[r.role || "owner"] >= RANK.editor && (
+                  <button title="Move to org / personal" onClick={() => setMoving(moving === r.id ? null : r.id)} className="rounded px-1.5 py-1 text-[12px] text-dim hover:bg-panel hover:text-ink">⇄</button>
+                )}
                 <button title="Rename" onClick={() => { setEditing(r.id); setEditName(r.name); }} className="rounded px-1.5 py-1 text-[12px] text-dim hover:bg-panel hover:text-ink">✎</button>
                 <button title="Duplicate" onClick={() => doClone(r.id)} className="rounded px-1.5 py-1 text-[12px] text-dim hover:bg-panel hover:text-ink">⧉</button>
                 <button title="Delete" onClick={() => doDelete(r.id, r.name)} className="rounded px-1.5 py-1 text-[12px] text-dim hover:bg-panel hover:text-bad">🗑</button>
+                {moving === r.id && (
+                  <div className="absolute right-0 top-8 z-10 w-44 rounded-lg border border-line bg-panel p-1 shadow-xl">
+                    <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-dim">Move to</div>
+                    {r.org_id && <button onClick={() => doMove(r.id, null)} className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-ink hover:bg-line/60">Personal (private)</button>}
+                    {editableOrgs.filter((o) => o.id !== r.org_id).map((o) => (
+                      <button key={o.id} onClick={() => doMove(r.id, o.id)} className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-ink hover:bg-line/60">⛬ {o.name}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ))}

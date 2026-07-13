@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 
 import db
+import orgs
 from schema import Workflow, RunRequest
 from executor import run_workflow, resolve_approval
 from llm import list_models, set_relay_auth
@@ -34,11 +35,12 @@ async def scheduler_loop():
         try:
             for sch in db.due_schedules():
                 wid, owner = sch["workflow_id"], sch["owner"]
-                wf = db.get_workflow(wid, owner)
+                wf = db.get_workflow_raw(wid)  # unattended runner — schedule row is the capability
                 nxt = _next_run(sch["cron"])
                 now_iso = datetime.datetime.utcnow().isoformat() + "Z"
                 if not wf:
-                    db.delete_schedule(wid, owner)
+                    with db._conn() as _c:
+                        _c.execute("DELETE FROM schedules WHERE workflow_id=?", (wid,))
                     continue
                 set_relay_auth(sch.get("relay_key"))
                 try:
@@ -129,6 +131,19 @@ def owner_of(request: Request):
     return p.get("sub") if p else None
 
 
+def ctx_of(request: Request):
+    """Access context {user, orgs:{org_id: role}} for RBAC-scoped workflow/run access.
+    Also claims any pending email invites for this user (idempotent, cheap)."""
+    p = session_payload(request.cookies.get("zb_session")) or {}
+    uid = p.get("sub")
+    if uid and p.get("email"):
+        try:
+            orgs.claim_invites(uid, p["email"])
+        except Exception:
+            pass
+    return {"user": uid, "orgs": orgs.user_org_roles(uid), "email": p.get("email"), "name": p.get("name")}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "service": "zoidlab-builder"}
@@ -142,12 +157,12 @@ async def models():
 
 @app.get("/api/workflows")
 def workflows(request: Request):
-    return {"workflows": db.list_workflows(owner_of(request))}
+    return {"workflows": db.list_workflows(ctx_of(request))}
 
 
 @app.get("/api/workflows/{wid}")
 def get_workflow(wid: str, request: Request):
-    wf = db.get_workflow(wid, owner_of(request))
+    wf = db.get_workflow(wid, ctx_of(request))
     if not wf:
         raise HTTPException(404, "Workflow not found")
     return wf
@@ -155,15 +170,23 @@ def get_workflow(wid: str, request: Request):
 
 @app.post("/api/workflows")
 def save_workflow(wf: Workflow, request: Request):
-    r = db.save_workflow(wf.model_dump(), owner_of(request))
+    ctx = ctx_of(request)
+    body = wf.model_dump()
+    existed = db.get_workflow(body.get("id"), ctx) is not None
+    r = db.save_workflow(body, ctx)
     if not r:
-        raise HTTPException(409, "Workflow id belongs to another user")
+        raise HTTPException(403, "You don't have edit access to this workflow")
+    if not existed:
+        orgs.audit(ctx["user"], body.get("org_id"), "workflow", body.get("id"), "created", {"name": body.get("name")})
     return r
 
 
 @app.delete("/api/workflows/{wid}")
 def delete_workflow(wid: str, request: Request):
-    db.delete_workflow(wid, owner_of(request))
+    ctx = ctx_of(request)
+    if not db.delete_workflow(wid, ctx):
+        raise HTTPException(403, "You don't have permission to delete this workflow")
+    orgs.audit(ctx["user"], None, "workflow", wid, "deleted", {})
     return {"ok": True}
 
 
@@ -173,7 +196,7 @@ class RenameRequest(BaseModel):
 
 @app.patch("/api/workflows/{wid}")
 def rename_workflow(wid: str, req: RenameRequest, request: Request):
-    r = db.rename_workflow(wid, req.name.strip() or "Untitled workflow", owner_of(request))
+    r = db.rename_workflow(wid, req.name.strip() or "Untitled workflow", ctx_of(request))
     if not r:
         raise HTTPException(404, "Workflow not found")
     return r
@@ -181,16 +204,30 @@ def rename_workflow(wid: str, req: RenameRequest, request: Request):
 
 @app.post("/api/workflows/{wid}/clone")
 def clone_workflow(wid: str, request: Request):
-    r = db.clone_workflow(wid, owner_of(request))
+    r = db.clone_workflow(wid, ctx_of(request))
     if not r:
         raise HTTPException(404, "Workflow not found")
+    return r
+
+
+class MoveRequest(BaseModel):
+    org_id: str | None = None
+
+
+@app.post("/api/workflows/{wid}/move")
+def move_workflow(wid: str, req: MoveRequest, request: Request):
+    ctx = ctx_of(request)
+    r = db.move_workflow(wid, req.org_id, ctx)
+    if not r:
+        raise HTTPException(403, "You don't have permission to move this workflow")
+    orgs.audit(ctx["user"], req.org_id, "workflow", wid, "moved", {"org_id": req.org_id})
     return r
 
 
 # --- versioning ---
 @app.get("/api/workflows/{wid}/versions")
 def list_versions(wid: str, request: Request):
-    v = db.list_versions(wid, owner_of(request))
+    v = db.list_versions(wid, ctx_of(request))
     if v is None:
         raise HTTPException(404, "Workflow not found")
     return {"versions": v}
@@ -202,7 +239,7 @@ class SnapshotRequest(BaseModel):
 
 @app.post("/api/workflows/{wid}/snapshot")
 def snapshot_workflow(wid: str, req: SnapshotRequest, request: Request):
-    r = db.snapshot_workflow(wid, (req.label or "").strip(), owner_of(request))
+    r = db.snapshot_workflow(wid, (req.label or "").strip(), ctx_of(request))
     if not r:
         raise HTTPException(404, "Workflow not found")
     return r
@@ -210,7 +247,7 @@ def snapshot_workflow(wid: str, req: SnapshotRequest, request: Request):
 
 @app.get("/api/versions/{vid}")
 def get_version(vid: str, request: Request):
-    v = db.get_version(vid, owner_of(request))
+    v = db.get_version(vid, ctx_of(request))
     if not v:
         raise HTTPException(404, "Version not found")
     return v
@@ -218,9 +255,11 @@ def get_version(vid: str, request: Request):
 
 @app.post("/api/versions/{vid}/restore")
 def restore_version(vid: str, request: Request):
-    wf = db.restore_version(vid, owner_of(request))
+    ctx = ctx_of(request)
+    wf = db.restore_version(vid, ctx)
     if not wf:
         raise HTTPException(404, "Version not found")
+    orgs.audit(ctx["user"], wf.get("org_id"), "workflow", wf.get("id"), "version_restored", {})
     return wf
 
 
@@ -253,17 +292,17 @@ def secret_delete(name: str, request: Request):
 # --- monitoring ---
 @app.get("/api/stats")
 def stats(request: Request):
-    return db.run_stats(owner_of(request))
+    return db.run_stats(ctx_of(request))
 
 
 @app.get("/api/runs")
 def runs(request: Request, workflow_id: str | None = None):
-    return {"runs": db.list_runs(owner_of(request), workflow_id)}
+    return {"runs": db.list_runs(ctx_of(request), workflow_id)}
 
 
 @app.get("/api/runs/{rid}")
 def run_detail(rid: str, request: Request):
-    r = db.get_run(rid, owner_of(request))
+    r = db.get_run(rid, ctx_of(request))
     if not r:
         raise HTTPException(404, "Run not found")
     return r
@@ -272,7 +311,7 @@ def run_detail(rid: str, request: Request):
 # --- deployment (deploy workflow as a webhook) ---
 @app.get("/api/workflows/{wid}/deployment")
 def get_deployment(wid: str, request: Request):
-    d = db.get_deployment(wid, owner_of(request))
+    d = db.get_deployment(wid, ctx_of(request))
     if d is None:
         raise HTTPException(404, "Workflow not found")
     return d
@@ -281,23 +320,27 @@ def get_deployment(wid: str, request: Request):
 @app.post("/api/workflows/{wid}/deploy")
 def deploy(wid: str, request: Request):
     p = session_payload(request.cookies.get("zb_session"))
-    d = db.deploy_workflow(wid, owner_of(request), p.get("rk") if p else None)
+    ctx = ctx_of(request)
+    d = db.deploy_workflow(wid, ctx, p.get("rk") if p else None)
     if d is None:
-        raise HTTPException(404, "Workflow not found")
+        raise HTTPException(403, "You don't have permission to deploy this workflow")
+    orgs.audit(ctx["user"], None, "workflow", wid, "deployed", {})
     return d
 
 
 @app.delete("/api/workflows/{wid}/deploy")
 def undeploy(wid: str, request: Request):
-    if not db.undeploy_workflow(wid, owner_of(request)):
-        raise HTTPException(404, "Workflow not found")
+    ctx = ctx_of(request)
+    if not db.undeploy_workflow(wid, ctx):
+        raise HTTPException(403, "You don't have permission")
+    orgs.audit(ctx["user"], None, "workflow", wid, "undeployed", {})
     return {"ok": True}
 
 
 # --- schedule (cron trigger) ---
 @app.get("/api/workflows/{wid}/schedule")
 def get_schedule(wid: str, request: Request):
-    return db.get_schedule(wid, owner_of(request)) or {"cron": None, "enabled": 0}
+    return db.get_schedule(wid, ctx_of(request)) or {"cron": None, "enabled": 0}
 
 
 class ScheduleRequest(BaseModel):
@@ -310,16 +353,105 @@ def set_schedule(wid: str, req: ScheduleRequest, request: Request):
     if not croniter.is_valid(cron):
         raise HTTPException(400, "Invalid cron expression (5 fields: min hour dom mon dow, UTC).")
     p = session_payload(request.cookies.get("zb_session"))
-    s = db.set_schedule(wid, owner_of(request), cron, p.get("rk") if p else None, _next_run(cron))
+    ctx = ctx_of(request)
+    s = db.set_schedule(wid, ctx, cron, p.get("rk") if p else None, _next_run(cron))
     if s is None:
-        raise HTTPException(404, "Workflow not found")
+        raise HTTPException(403, "You don't have permission to schedule this workflow")
+    orgs.audit(ctx["user"], None, "workflow", wid, "scheduled", {"cron": cron})
     return s
 
 
 @app.delete("/api/workflows/{wid}/schedule")
 def delete_schedule(wid: str, request: Request):
-    db.delete_schedule(wid, owner_of(request))
+    db.delete_schedule(wid, ctx_of(request))
     return {"ok": True}
+
+
+# --- organizations + RBAC -------------------------------------------------
+@app.get("/api/orgs")
+def list_orgs(request: Request):
+    return {"orgs": orgs.list_orgs(owner_of(request))}
+
+
+class OrgBody(BaseModel):
+    name: str
+
+
+@app.post("/api/orgs")
+def create_org(body: OrgBody, request: Request):
+    uid = owner_of(request)
+    if not (body.name or "").strip():
+        raise HTTPException(400, "Org name required")
+    return {"org": orgs.create_org(body.name, uid)}
+
+
+@app.get("/api/orgs/{oid}")
+def get_org(oid: str, request: Request):
+    o = orgs.get_org(oid, owner_of(request))
+    if not o:
+        raise HTTPException(404, "Org not found")
+    return o
+
+
+@app.patch("/api/orgs/{oid}")
+def rename_org(oid: str, body: OrgBody, request: Request):
+    o = orgs.rename_org(oid, body.name, owner_of(request))
+    if not o:
+        raise HTTPException(403, "Only an owner can rename the org")
+    return o
+
+
+@app.delete("/api/orgs/{oid}")
+def delete_org(oid: str, request: Request):
+    if not orgs.delete_org(oid, owner_of(request)):
+        raise HTTPException(403, "Only an owner can delete the org")
+    return {"ok": True}
+
+
+class MemberBody(BaseModel):
+    email: str | None = None
+    user_id: str | None = None
+    role: str = "viewer"
+
+
+@app.post("/api/orgs/{oid}/members")
+def add_member(oid: str, body: MemberBody, request: Request):
+    r = orgs.add_member(oid, owner_of(request), email=body.email, member_user_id=body.user_id, role=body.role)
+    if r.get("error"):
+        code = 403 if r["error"] == "forbidden" else 400
+        raise HTTPException(code, r["error"])
+    return r
+
+
+class RoleBody(BaseModel):
+    role: str
+
+
+@app.patch("/api/orgs/{oid}/members/{mid}")
+def update_member(oid: str, mid: str, body: RoleBody, request: Request):
+    r = orgs.update_member(oid, owner_of(request), mid, body.role)
+    if r.get("error"):
+        code = 403 if r["error"] in ("forbidden", "owner_only") else 400
+        raise HTTPException(code, r["error"])
+    return r
+
+
+@app.delete("/api/orgs/{oid}/members/{mid}")
+def remove_member(oid: str, mid: str, request: Request):
+    r = orgs.remove_member(oid, owner_of(request), mid)
+    if r.get("error"):
+        code = 403 if r["error"] == "forbidden" else 400
+        raise HTTPException(code, r["error"])
+    return r
+
+
+# --- audit log ------------------------------------------------------------
+@app.get("/api/audit")
+def audit(request: Request, org_id: str | None = None):
+    rows = orgs.audit_list(owner_of(request), org_id=org_id)
+    if rows is None:
+        raise HTTPException(403, "Admin access required for this org's audit log")
+    return {"audit": rows}
 
 
 class ApproveRequest(BaseModel):

@@ -28,6 +28,8 @@ import HistoryModal from "../components/HistoryModal";
 import DeployModal from "../components/DeployModal";
 import MonitorModal from "../components/MonitorModal";
 import SecretsModal from "../components/SecretsModal";
+import OrgsModal from "../components/OrgsModal";
+import AuditModal from "../components/AuditModal";
 import { type Template } from "../lib/templates";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
@@ -50,6 +52,8 @@ function Builder() {
   const [deployOpen, setDeployOpen] = useState(false);
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [secretsOpen, setSecretsOpen] = useState(false);
+  const [orgsOpen, setOrgsOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [approval, setApproval] = useState<{ token: string; message: string; nodeId: string } | null>(null);
 
   const decide = (decision: "approve" | "reject") => {
@@ -263,6 +267,20 @@ function Builder() {
           >
             ⚿ Secrets
           </button>
+          <button
+            onClick={() => setOrgsOpen(true)}
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="Organizations & roles"
+          >
+            ⛬ Orgs
+          </button>
+          <button
+            onClick={() => setAuditOpen(true)}
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="Audit log"
+          >
+            ❋ Audit
+          </button>
         </div>
         <input
           value={s.name}
@@ -403,6 +421,8 @@ function Builder() {
       />
       <MonitorModal open={monitorOpen} onClose={() => setMonitorOpen(false)} />
       <SecretsModal open={secretsOpen} onClose={() => setSecretsOpen(false)} />
+      <OrgsModal open={orgsOpen} onClose={() => setOrgsOpen(false)} />
+      <AuditModal open={auditOpen} onClose={() => setAuditOpen(false)} />
       <DeployModal
         open={deployOpen}
         onClose={() => setDeployOpen(false)}

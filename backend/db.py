@@ -44,11 +44,14 @@ def init():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_versions_wf ON versions(workflow_id, created_at)")
-        # ownership migration (idempotent)
+        # ownership + org migration (idempotent)
         cols = [r["name"] for r in c.execute("PRAGMA table_info(workflows)")]
         if "owner" not in cols:
             c.execute("ALTER TABLE workflows ADD COLUMN owner TEXT")
+        if "org_id" not in cols:
+            c.execute("ALTER TABLE workflows ADD COLUMN org_id TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_workflows_owner ON workflows(owner, updated_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_workflows_org ON workflows(org_id, updated_at)")
         c.execute("""
             CREATE TABLE IF NOT EXISTS deployments (
                 token TEXT PRIMARY KEY,
@@ -73,7 +76,13 @@ def init():
                 events TEXT
             )
         """)
+        rcols = [r["name"] for r in c.execute("PRAGMA table_info(runs)")]
+        if "cost_usd" not in rcols:
+            c.execute("ALTER TABLE runs ADD COLUMN cost_usd REAL")
+        if "org_id" not in rcols:
+            c.execute("ALTER TABLE runs ADD COLUMN org_id TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_runs_wf ON runs(workflow_id, started_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_runs_org ON runs(org_id, started_at)")
         c.execute("""
             CREATE TABLE IF NOT EXISTS secrets (
                 owner TEXT NOT NULL,
@@ -106,6 +115,30 @@ def init():
                 created_at TEXT NOT NULL
             )
         """)
+    import orgs  # lazy (orgs imports db) — create org/member/audit tables
+    orgs.init()
+
+
+# --- access control (personal + org RBAC) --------------------------------
+ROLE_RANK = {"viewer": 1, "editor": 2, "admin": 3, "owner": 4}
+
+
+def _can(role, need):
+    return role is not None and ROLE_RANK.get(role, 0) >= ROLE_RANK[need]
+
+
+def _access(c, wid, ctx):
+    """(row, role) for a workflow under access context ctx={'user','orgs':{oid:role}}.
+    Personal workflows (org_id NULL) grant role 'owner' to their owner. Org workflows
+    grant the caller's membership role. (None, None) if no access."""
+    ctx = ctx or {}
+    row = c.execute("SELECT * FROM workflows WHERE id=?", (wid,)).fetchone()
+    if not row:
+        return None, None
+    if row["org_id"]:
+        role = (ctx.get("orgs") or {}).get(row["org_id"])
+        return (row, role) if role else (None, None)
+    return (row, "owner") if row["owner"] == ctx.get("user") else (None, None)
 
 
 def _owned(c, wid, owner):
@@ -115,48 +148,101 @@ def _owned(c, wid, owner):
     ).fetchone()
 
 
-def list_workflows(owner=None):
+def list_workflows(ctx=None):
+    """Personal workflows (owned + not in an org) plus every org workflow the caller can see."""
+    ctx = ctx or {}
+    user = ctx.get("user")
+    org_roles = ctx.get("orgs") or {}
+    org_ids = list(org_roles)
     with _conn() as c:
-        rows = c.execute(
-            "SELECT id, name, updated_at FROM workflows WHERE owner IS ? ORDER BY updated_at DESC",
-            (owner,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        q = "SELECT id, name, updated_at, org_id, owner FROM workflows WHERE (owner IS ? AND org_id IS NULL)"
+        args = [user]
+        if org_ids:
+            q += " OR org_id IN (%s)" % ",".join("?" * len(org_ids))
+            args += org_ids
+        q += " ORDER BY updated_at DESC"
+        rows = c.execute(q, args).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["role"] = org_roles.get(r["org_id"]) if r["org_id"] else "owner"
+        out.append(d)
+    return out
 
 
-def get_workflow(wid, owner=None):
+def get_workflow(wid, ctx=None):
     with _conn() as c:
-        row = _owned(c, wid, owner)
+        row, role = _access(c, wid, ctx)
         if not row:
             return None
         g = json.loads(row["graph"])
         g["id"] = row["id"]
         g["name"] = row["name"]
         g["updated_at"] = row["updated_at"]
+        g["org_id"] = row["org_id"]
+        g["role"] = role
         return g
+
+
+def get_workflow_raw(wid):
+    """Bypass access control — for unattended runners (scheduler, webhook) whose token/
+    schedule row IS the capability. Never exposed directly to an API caller."""
+    with _conn() as c:
+        row = c.execute("SELECT * FROM workflows WHERE id=?", (wid,)).fetchone()
+    if not row:
+        return None
+    g = json.loads(row["graph"])
+    g["id"] = row["id"]; g["name"] = row["name"]; g["org_id"] = row["org_id"]
+    return g
 
 
 AUTO_VERSION_GAP = 120  # seconds — auto-snapshot at most this often per workflow
 
 
-def save_workflow(wf: dict, owner=None):
-    """Upsert scoped to owner. Returns None if the id exists under a different
-    owner (prevents cross-user id collisions/overwrites)."""
+def save_workflow(wf: dict, ctx=None):
+    """Upsert. New workflows are personal (or placed in an org the caller can edit);
+    updates require editor+ on the existing row. Returns None on a permission failure
+    (id belongs to another user, or caller lacks edit rights in the org)."""
+    ctx = ctx or {}
+    user = ctx.get("user")
     now = datetime.datetime.utcnow().isoformat() + "Z"
     name = wf.get("name", "Untitled workflow")
     graph = json.dumps({"nodes": wf.get("nodes", []), "edges": wf.get("edges", [])})
     with _conn() as c:
-        existing = c.execute("SELECT owner FROM workflows WHERE id=?", (wf["id"],)).fetchone()
-        if existing is not None and existing["owner"] != owner:
-            return None
-        c.execute(
-            """INSERT INTO workflows (id, name, graph, updated_at, owner) VALUES (?,?,?,?,?)
-               ON CONFLICT(id) DO UPDATE SET name=excluded.name,
-                 graph=excluded.graph, updated_at=excluded.updated_at""",
-            (wf["id"], name, graph, now, owner),
-        )
+        existing = c.execute("SELECT owner, org_id FROM workflows WHERE id=?", (wf["id"],)).fetchone()
+        if existing is not None:
+            # update — enforce access, keep ownership/org fixed (moving is a separate op)
+            _, role = _access(c, wf["id"], ctx)
+            if not _can(role, "editor"):
+                return None
+            c.execute("UPDATE workflows SET name=?, graph=?, updated_at=? WHERE id=?",
+                      (name, graph, now, wf["id"]))
+        else:
+            # create — optional org placement requires editor+ in that org
+            org_id = wf.get("org_id") or None
+            if org_id and not _can((ctx.get("orgs") or {}).get(org_id), "editor"):
+                return None
+            c.execute(
+                "INSERT INTO workflows (id, name, graph, updated_at, owner, org_id) VALUES (?,?,?,?,?,?)",
+                (wf["id"], name, graph, now, user, org_id),
+            )
     _maybe_auto_version(wf["id"], name, graph, now)
     return {"id": wf["id"], "updated_at": now}
+
+
+def move_workflow(wid, org_id, ctx=None):
+    """Move a workflow to an org (or back to personal, org_id=None). Requires the caller
+    be editor+ on the source and, if targeting an org, editor+ there."""
+    ctx = ctx or {}
+    with _conn() as c:
+        row, role = _access(c, wid, ctx)
+        if not row or not _can(role, "editor"):
+            return None
+        if org_id and not _can((ctx.get("orgs") or {}).get(org_id), "editor"):
+            return None
+        new_owner = row["owner"] or ctx.get("user")  # keep creator; ensure set when leaving sandbox
+        c.execute("UPDATE workflows SET org_id=?, owner=? WHERE id=?", (org_id or None, new_owner, wid))
+    return {"id": wid, "org_id": org_id or None}
 
 
 def _maybe_auto_version(wid, name, graph, now):
@@ -187,9 +273,12 @@ def _insert_version(wid, name, graph, label, now):
         )
 
 
-def delete_workflow(wid, owner=None):
+def delete_workflow(wid, ctx=None):
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        # personal owner can delete their own; in an org it takes admin+
+        need = "owner" if (row and not row["org_id"]) else "admin"
+        if not row or not _can(role, need):
             return False
         c.execute("DELETE FROM workflows WHERE id=?", (wid,))
         c.execute("DELETE FROM versions WHERE workflow_id=?", (wid,))
@@ -236,31 +325,40 @@ def kv_delete(owner, workflow_id, key):
 
 
 # --- schedules (cron) -----------------------------------------------------
-def get_schedule(wid, owner=None):
+def get_schedule(wid, ctx=None):
     with _conn() as c:
-        r = c.execute("SELECT cron, enabled, next_run, last_run FROM schedules WHERE workflow_id=? AND owner IS ?",
-                      (wid, owner)).fetchone()
+        row, role = _access(c, wid, ctx)
+        if not row:
+            return None
+        r = c.execute("SELECT cron, enabled, next_run, last_run FROM schedules WHERE workflow_id=?",
+                      (wid,)).fetchone()
         return dict(r) if r else None
 
 
-def set_schedule(wid, owner, cron, relay_key, next_run):
+def set_schedule(wid, ctx, cron, relay_key, next_run):
+    """Editor+ can schedule. Runs under the scheduling user (their key + secrets)."""
     now = datetime.datetime.utcnow().isoformat() + "Z"
+    ctx = ctx or {}
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        if not row or not _can(role, "editor"):
             return None
         c.execute(
             """INSERT INTO schedules (workflow_id, owner, cron, relay_key, enabled, next_run, last_run, created_at)
                VALUES (?,?,?,?,1,?,NULL,?)
-               ON CONFLICT(workflow_id) DO UPDATE SET cron=excluded.cron,
+               ON CONFLICT(workflow_id) DO UPDATE SET cron=excluded.cron, owner=excluded.owner,
                  relay_key=excluded.relay_key, enabled=1, next_run=excluded.next_run""",
-            (wid, owner, cron, relay_key, next_run, now),
+            (wid, ctx.get("user"), cron, relay_key, next_run, now),
         )
-    return get_schedule(wid, owner)
+    return get_schedule(wid, ctx)
 
 
-def delete_schedule(wid, owner=None):
+def delete_schedule(wid, ctx=None):
     with _conn() as c:
-        c.execute("DELETE FROM schedules WHERE workflow_id=? AND owner IS ?", (wid, owner))
+        row, role = _access(c, wid, ctx)
+        if not row or not _can(role, "editor"):
+            return
+        c.execute("DELETE FROM schedules WHERE workflow_id=?", (wid,))
 
 
 def due_schedules():
@@ -286,21 +384,23 @@ def mark_schedule_ran(wid, last_run, next_run):
 
 
 # --- deployments ---------------------------------------------------------
-def get_deployment(wid, owner=None):
+def get_deployment(wid, ctx=None):
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        if not row:
             return None
         r = c.execute("SELECT token, enabled, created_at FROM deployments WHERE workflow_id=?", (wid,)).fetchone()
         return dict(r) if r else {"token": None, "enabled": 0}
 
 
-def deploy_workflow(wid, owner=None, relay_key=None):
+def deploy_workflow(wid, ctx=None, relay_key=None):
     """Create (or rotate) the webhook deployment. relay_key = the deployer's
-    own Nyquest key so unattended runs bill their wallet."""
+    own Nyquest key so unattended runs bill their wallet. Requires editor+."""
     now = datetime.datetime.utcnow().isoformat() + "Z"
     token = "zh_" + _secrets.token_urlsafe(24)
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        if not row or not _can(role, "editor"):
             return None
         c.execute("DELETE FROM deployments WHERE workflow_id=?", (wid,))
         c.execute(
@@ -310,9 +410,10 @@ def deploy_workflow(wid, owner=None, relay_key=None):
     return {"token": token, "enabled": 1, "created_at": now}
 
 
-def undeploy_workflow(wid, owner=None):
+def undeploy_workflow(wid, ctx=None):
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        if not row or not _can(role, "editor"):
             return False
         c.execute("DELETE FROM deployments WHERE workflow_id=?", (wid,))
     return True
@@ -328,35 +429,64 @@ def deployment_by_token(token):
         ).fetchone()
     if not r:
         return None
-    wf = get_workflow(r["workflow_id"], r["owner"])
+    wf = get_workflow_raw(r["workflow_id"])  # token is the capability; bypass RBAC
     if not wf:
         return None
     return {"workflow": wf, "relay_key": r["relay_key"], "owner": r["owner"]}
 
 
 # --- run log --------------------------------------------------------------
+def _run_cost(events):
+    """Sum per-node relay cost from the run's events (0.0 for auto/unpriced calls)."""
+    total = 0.0
+    for ev in events or []:
+        if isinstance(ev, dict) and ev.get("cost"):
+            try:
+                total += float(ev["cost"])
+            except Exception:
+                pass
+    return round(total, 6)
+
+
 def log_run(workflow_id, owner, source, res):
+    events = res.get("events") or []
+    cost = _run_cost(events)
     with _conn() as c:
+        org = c.execute("SELECT org_id FROM workflows WHERE id=?", (workflow_id,)).fetchone()
+        org_id = org["org_id"] if org else None
         c.execute(
-            """INSERT INTO runs (id, workflow_id, owner, source, status, started_at, ms, tokens, output, error, events)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            """INSERT INTO runs (id, workflow_id, owner, org_id, source, status, started_at, ms, tokens, cost_usd, output, error, events)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                "run_" + uuid.uuid4().hex[:10], workflow_id, owner, source,
+                "run_" + uuid.uuid4().hex[:10], workflow_id, owner, org_id, source,
                 res.get("status", "error"), res.get("started_at", datetime.datetime.utcnow().isoformat() + "Z"),
-                res.get("ms"), res.get("tokens"),
+                res.get("ms"), res.get("tokens"), cost,
                 (res.get("output") or "")[:4000] if res.get("output") else None,
                 (res.get("error") or "")[:2000] if res.get("error") else None,
-                json.dumps(res.get("events") or [])[:100000],
+                json.dumps(events)[:100000],
             ),
         )
 
 
-def list_runs(owner=None, workflow_id=None, limit=100):
-    q = ("""SELECT r.id, r.workflow_id, COALESCE(w.name,'(deleted)') AS workflow_name,
-                   r.source, r.status, r.started_at, r.ms, r.tokens
+def _run_visibility(ctx):
+    """(sql_clause, args) selecting runs the caller can see: their personal runs plus
+    runs of any org they belong to."""
+    ctx = ctx or {}
+    org_ids = list(ctx.get("orgs") or {})
+    clause = "(r.owner IS ? AND r.org_id IS NULL)"
+    args = [ctx.get("user")]
+    if org_ids:
+        clause += " OR r.org_id IN (%s)" % ",".join("?" * len(org_ids))
+        args += org_ids
+    return "(" + clause + ")", args
+
+
+def list_runs(ctx=None, workflow_id=None, limit=100):
+    vis, args = _run_visibility(ctx)
+    q = (f"""SELECT r.id, r.workflow_id, COALESCE(w.name,'(deleted)') AS workflow_name,
+                   r.source, r.status, r.started_at, r.ms, r.tokens, r.cost_usd, r.org_id
             FROM runs r LEFT JOIN workflows w ON w.id = r.workflow_id
-            WHERE r.owner IS ? """)
-    args = [owner]
+            WHERE {vis} """)
     if workflow_id:
         q += "AND r.workflow_id = ? "
         args.append(workflow_id)
@@ -366,13 +496,14 @@ def list_runs(owner=None, workflow_id=None, limit=100):
         return [dict(r) for r in c.execute(q, args).fetchall()]
 
 
-def get_run(rid, owner=None):
+def get_run(rid, ctx=None):
+    vis, args = _run_visibility(ctx)
     with _conn() as c:
         r = c.execute(
-            """SELECT r.*, COALESCE(w.name,'(deleted)') AS workflow_name
+            f"""SELECT r.*, COALESCE(w.name,'(deleted)') AS workflow_name
                FROM runs r LEFT JOIN workflows w ON w.id = r.workflow_id
-               WHERE r.id=? AND r.owner IS ?""",
-            (rid, owner),
+               WHERE r.id=? AND {vis}""",
+            (rid, *args),
         ).fetchone()
     if not r:
         return None
@@ -422,25 +553,40 @@ def secrets_map(owner=None):
     return out
 
 
-def run_stats(owner=None):
+def run_stats(ctx=None):
+    vis, a = _run_visibility(ctx)
+    # the visibility clause uses table alias `r.`; stats queries are single-table, alias runs as r
     with _conn() as c:
         row = c.execute(
-            """SELECT COUNT(*) total,
+            f"""SELECT COUNT(*) total,
                       SUM(CASE WHEN status='complete' THEN 1 ELSE 0 END) ok,
                       COALESCE(SUM(tokens),0) tokens,
+                      COALESCE(SUM(cost_usd),0) cost,
                       COALESCE(AVG(ms),0) avg_ms
-               FROM runs WHERE owner IS ?""",
-            (owner,),
+               FROM runs r WHERE {vis}""",
+            a,
         ).fetchone()
         by_src = {r["source"]: r["n"] for r in c.execute(
-            "SELECT source, COUNT(*) n FROM runs WHERE owner IS ? GROUP BY source", (owner,)
+            f"SELECT source, COUNT(*) n FROM runs r WHERE {vis} GROUP BY source", a
         ).fetchall()}
         days = [dict(r) for r in c.execute(
-            """SELECT substr(started_at,1,10) d, COUNT(*) n,
-                      SUM(CASE WHEN status='complete' THEN 1 ELSE 0 END) ok
-               FROM runs WHERE owner IS ? GROUP BY d ORDER BY d DESC LIMIT 14""",
-            (owner,),
+            f"""SELECT substr(started_at,1,10) d, COUNT(*) n,
+                      SUM(CASE WHEN status='complete' THEN 1 ELSE 0 END) ok,
+                      COALESCE(SUM(cost_usd),0) cost
+               FROM runs r WHERE {vis} GROUP BY d ORDER BY d DESC LIMIT 14""",
+            a,
         ).fetchall()]
+        by_wf = [dict(r) for r in c.execute(
+            f"""SELECT r.workflow_id, COALESCE(w.name,'(deleted)') AS name,
+                      COUNT(*) runs, COALESCE(SUM(r.cost_usd),0) cost, COALESCE(SUM(r.tokens),0) tokens
+               FROM runs r LEFT JOIN workflows w ON w.id=r.workflow_id
+               WHERE {vis} GROUP BY r.workflow_id ORDER BY cost DESC LIMIT 8""",
+            a,
+        ).fetchall()]
+        # how many priced-token runs lack a cost (auto/unpriced) → honesty flag
+        partial = c.execute(
+            f"SELECT COUNT(*) n FROM runs r WHERE {vis} AND COALESCE(tokens,0)>0 AND COALESCE(cost_usd,0)=0", a
+        ).fetchone()["n"]
     total = row["total"] or 0
     ok = row["ok"] or 0
     return {
@@ -449,23 +595,27 @@ def run_stats(owner=None):
         "failed": total - ok,
         "success_rate": round(100 * ok / total) if total else None,
         "tokens": row["tokens"] or 0,
+        "cost_usd": round(row["cost"] or 0, 4),
+        "cost_partial_runs": partial,
         "avg_ms": int(row["avg_ms"] or 0),
         "by_source": by_src,
-        "days": list(reversed(days)),
+        "by_workflow": [{**d, "cost": round(d["cost"], 4)} for d in by_wf],
+        "days": [{**d, "cost": round(d["cost"], 4)} for d in reversed(days)],
     }
 
 
-def rename_workflow(wid, name, owner=None):
+def rename_workflow(wid, name, ctx=None):
     now = datetime.datetime.utcnow().isoformat() + "Z"
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        if not row or not _can(role, "editor"):
             return None
         c.execute("UPDATE workflows SET name=?, updated_at=? WHERE id=?", (name, now, wid))
     return {"id": wid, "name": name, "updated_at": now}
 
 
-def clone_workflow(wid, owner=None):
-    src = get_workflow(wid, owner)
+def clone_workflow(wid, ctx=None):
+    src = get_workflow(wid, ctx)
     if not src:
         return None
     new = {
@@ -473,14 +623,15 @@ def clone_workflow(wid, owner=None):
         "name": src.get("name", "Untitled") + " (copy)",
         "nodes": src.get("nodes", []),
         "edges": src.get("edges", []),
+        "org_id": src.get("org_id"),  # a clone stays in the same org (if any)
     }
-    save_workflow(new, owner)
+    save_workflow(new, ctx)
     return {"id": new["id"], "name": new["name"]}
 
 
-def snapshot_workflow(wid, label, owner=None):
-    wf = get_workflow(wid, owner)
-    if not wf:
+def snapshot_workflow(wid, label, ctx=None):
+    wf = get_workflow(wid, ctx)
+    if not wf or not _can(wf.get("role"), "editor"):
         return None
     now = datetime.datetime.utcnow().isoformat() + "Z"
     graph = json.dumps({"nodes": wf.get("nodes", []), "edges": wf.get("edges", [])})
@@ -488,9 +639,10 @@ def snapshot_workflow(wid, label, owner=None):
     return {"ok": True, "created_at": now}
 
 
-def list_versions(wid, owner=None):
+def list_versions(wid, ctx=None):
     with _conn() as c:
-        if not _owned(c, wid, owner):
+        row, role = _access(c, wid, ctx)
+        if not row:
             return None
         rows = c.execute(
             "SELECT id, name, label, created_at, graph FROM versions WHERE workflow_id=? ORDER BY created_at DESC",
@@ -507,18 +659,18 @@ def list_versions(wid, owner=None):
     return out
 
 
-def _version_row(vid, owner):
-    """Version row iff its parent workflow belongs to owner."""
+def _version_row(vid, ctx, need="viewer"):
+    """Version row iff the caller has at least `need` role on its parent workflow."""
     with _conn() as c:
-        return c.execute(
-            """SELECT v.* FROM versions v JOIN workflows w ON w.id = v.workflow_id
-               WHERE v.id=? AND w.owner IS ?""",
-            (vid, owner),
-        ).fetchone()
+        r = c.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
+        if not r:
+            return None
+        _, role = _access(c, r["workflow_id"], ctx)
+    return r if _can(role, need) else None
 
 
-def get_version(vid, owner=None):
-    r = _version_row(vid, owner)
+def get_version(vid, ctx=None):
+    r = _version_row(vid, ctx, "viewer")
     if not r:
         return None
     g = json.loads(r["graph"])
@@ -527,13 +679,13 @@ def get_version(vid, owner=None):
     return g
 
 
-def restore_version(vid, owner=None):
-    r = _version_row(vid, owner)
+def restore_version(vid, ctx=None):
+    r = _version_row(vid, ctx, "editor")
     if not r:
         return None
     g = json.loads(r["graph"])
     now = datetime.datetime.utcnow().isoformat() + "Z"
-    save_workflow({"id": r["workflow_id"], "name": r["name"], "nodes": g.get("nodes", []), "edges": g.get("edges", [])}, owner)
+    save_workflow({"id": r["workflow_id"], "name": r["name"], "nodes": g.get("nodes", []), "edges": g.get("edges", [])}, ctx)
     _insert_version(r["workflow_id"], r["name"], r["graph"],
                     f"Restored from {r['created_at'][:16].replace('T', ' ')}", now)
-    return get_workflow(r["workflow_id"], owner)
+    return get_workflow(r["workflow_id"], ctx)
