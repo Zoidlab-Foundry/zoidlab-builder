@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 import db
 import orgs
+import analyzer
 from schema import Workflow, RunRequest
 from executor import run_workflow, resolve_approval
 from llm import list_models, set_relay_auth
@@ -533,6 +534,27 @@ async def generate(req: GenerateRequest, request: Request):
         return await flowsmith_generate(req.prompt, req.model)
     except Exception as ex:
         raise HTTPException(400, f"Flowsmith could not build that: {ex}")
+
+
+@app.post("/api/analyze")
+def analyze_workflow(req: RunRequest, request: Request):
+    """Quality analysis + performance recommendations for a workflow (AI-native, Phase 4).
+    Static checks are deterministic; perf recs come from THIS workflow's real run history."""
+    wf = req.workflow.model_dump()
+    ctx = ctx_of(request)
+    stats = db.node_run_stats(wf.get("id"), ctx) if wf.get("id") else {}
+    return analyzer.analyze(wf, stats)
+
+
+class OptimizeRequest(BaseModel):
+    workflow: Workflow
+
+
+@app.post("/api/optimize")
+def optimize_workflow(req: OptimizeRequest, request: Request):
+    """Return an optimized copy of the workflow with safe, behavior-preserving hardening
+    applied (timeouts, retries, fallback, missing End). The caller reviews + applies it."""
+    return analyzer.optimize(req.workflow.model_dump())
 
 
 @app.post("/api/run")

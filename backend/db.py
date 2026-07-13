@@ -604,6 +604,45 @@ def run_stats(ctx=None):
     }
 
 
+def node_run_stats(wid, ctx=None, limit=200):
+    """Aggregate per-node metrics from a workflow's recent runs (for the optimizer's
+    performance analysis). Returns {node_id: {runs, errors, ms_avg, cost, tokens}}."""
+    vis, args = _run_visibility(ctx)
+    with _conn() as c:
+        rows = c.execute(
+            f"SELECT r.events FROM runs r WHERE {vis} AND r.workflow_id=? ORDER BY r.started_at DESC LIMIT ?",
+            (*args, wid, limit),
+        ).fetchall()
+    agg = {}
+    for row in rows:
+        try:
+            events = json.loads(row["events"] or "[]")
+        except Exception:
+            continue
+        for ev in events:
+            if not isinstance(ev, dict) or ev.get("type") != "node" or ev.get("status") == "running":
+                continue
+            nid = ev.get("nodeId")
+            if not nid:
+                continue
+            a = agg.setdefault(nid, {"runs": 0, "errors": 0, "ms_sum": 0, "cost": 0.0, "tokens": 0})
+            a["runs"] += 1
+            if ev.get("status") == "error":
+                a["errors"] += 1
+            if ev.get("ms"):
+                a["ms_sum"] += ev["ms"]
+            if ev.get("cost"):
+                a["cost"] += ev["cost"]
+            if ev.get("tokens"):
+                a["tokens"] += ev["tokens"]
+    out = {}
+    for nid, a in agg.items():
+        out[nid] = {"runs": a["runs"], "errors": a["errors"],
+                    "ms_avg": round(a["ms_sum"] / a["runs"]) if a["runs"] else 0,
+                    "cost": round(a["cost"], 6), "tokens": a["tokens"]}
+    return out
+
+
 def rename_workflow(wid, name, ctx=None):
     now = datetime.datetime.utcnow().isoformat() + "Z"
     with _conn() as c:

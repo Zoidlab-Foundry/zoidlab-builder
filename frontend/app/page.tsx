@@ -30,6 +30,7 @@ import MonitorModal from "../components/MonitorModal";
 import SecretsModal from "../components/SecretsModal";
 import OrgsModal from "../components/OrgsModal";
 import AuditModal from "../components/AuditModal";
+import OptimizeModal from "../components/OptimizeModal";
 import { type Template } from "../lib/templates";
 import { NODE_DEFS } from "../lib/catalog";
 import type { Workflow } from "../lib/store";
@@ -40,7 +41,7 @@ const nodeTypes: NodeTypes = { wf: WorkflowNode };
 
 function Builder() {
   const s = useStore();
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, setCenter } = useReactFlow();
   const wrap = useRef<HTMLDivElement>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [flowsmithOpen, setFlowsmithOpen] = useState(false);
@@ -54,6 +55,7 @@ function Builder() {
   const [secretsOpen, setSecretsOpen] = useState(false);
   const [orgsOpen, setOrgsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
   const [approval, setApproval] = useState<{ token: string; message: string; nodeId: string } | null>(null);
 
   const decide = (decision: "approve" | "reject") => {
@@ -261,6 +263,13 @@ function Builder() {
             ◷ Runs
           </button>
           <button
+            onClick={() => setOptimizeOpen(true)}
+            className="rounded-lg border border-vi/40 bg-vi/5 px-3 py-1.5 text-[12px] font-medium text-ind hover:bg-vi/15"
+            title="Analyze & optimize this workflow"
+          >
+            ⚡ Optimize
+          </button>
+          <button
             onClick={() => setSecretsOpen(true)}
             className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
             title="Secrets vault"
@@ -423,6 +432,13 @@ function Builder() {
       <SecretsModal open={secretsOpen} onClose={() => setSecretsOpen(false)} />
       <OrgsModal open={orgsOpen} onClose={() => setOrgsOpen(false)} />
       <AuditModal open={auditOpen} onClose={() => setAuditOpen(false)} />
+      <OptimizeModal
+        open={optimizeOpen}
+        onClose={() => setOptimizeOpen(false)}
+        getWorkflow={() => s.toWorkflow()}
+        onApply={(wf) => { s.loadWorkflow(wf); setTimeout(() => fitView({ duration: 300 }), 60); }}
+        onFocusNode={(id) => { s.select(id); const n = s.nodes.find((x) => x.id === id); if (n) setCenter(n.position.x + 120, n.position.y + 40, { zoom: 1.1, duration: 400 }); }}
+      />
       <DeployModal
         open={deployOpen}
         onClose={() => setDeployOpen(false)}

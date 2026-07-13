@@ -298,6 +298,38 @@ export async function listAudit(orgId?: string): Promise<AuditEntry[]> {
   return r.ok ? (await r.json()).audit || [] : [];
 }
 
+// --- workflow analyzer + optimizer (AI-native) ---
+export interface AnalyzeCheck {
+  id: string; severity: "high" | "medium" | "low"; title: string; detail: string;
+  node_id: string | null; fixable: boolean;
+}
+export interface PerfRec { type: string; node_id?: string; title: string; detail: string; }
+export interface Analysis {
+  score: number;
+  checks: AnalyzeCheck[];
+  recommendations: PerfRec[];
+  node_stats: Record<string, { runs: number; errors: number; ms_avg: number; cost: number; tokens: number }>;
+  summary: { issues: number; fixable: number; high: number; runs_analyzed: number };
+}
+
+export async function analyzeWorkflow(workflow: Workflow): Promise<Analysis> {
+  const r = await fetch("/api/analyze", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workflow, trigger: {} }),
+  });
+  if (!r.ok) throw new Error("Analysis failed");
+  return r.json();
+}
+
+export async function optimizeWorkflow(workflow: Workflow): Promise<{ workflow: Workflow; applied: string[]; count: number }> {
+  const r = await fetch("/api/optimize", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workflow }),
+  });
+  if (!r.ok) throw new Error("Optimize failed");
+  return r.json();
+}
+
 export async function decideApproval(token: string, decision: "approve" | "reject") {
   await fetch("/api/approve", {
     method: "POST",
