@@ -12,6 +12,7 @@ import ipaddress
 from urllib.parse import urlparse
 import httpx
 import db_pg as db
+import foundry
 import pricing
 from llm import chat, post_json, get_json, run_agent, DEFAULT_MODEL
 
@@ -157,7 +158,6 @@ async def exec_node(node, ctx):
         }
 
     if t == "trustgate":
-        import foundry
         subject = render(data["prompt"], ctx) if data.get("prompt") else _as_text(incoming)
         model = render(str(data.get("model") or ""), ctx) or "auto"
         action = {
@@ -244,6 +244,83 @@ async def exec_node(node, ctx):
             return {"output": "\n".join(m.get("content", "") for m in mems) or mems,
                     "meta": f"Memory {r.status_code} · {len(mems)} recalled", "memories": mems}
         return {"output": j.get("output", r.text if not j else j), "meta": f"Prompt {r.status_code}"}
+
+    # --- Foundry labs: start a durable job in a sibling lab as the run's user, wait for it ---
+    if t in ("vision_run", "voice_run", "mcp_call", "swarm_run"):
+        headers = foundry.lab_headers()
+        if not headers:
+            raise ValueError(f"{t}: no session to reach the lab — run signed-in, or via a deploy/schedule (which mints one)")
+        incoming_text = _as_text(incoming) or ""
+        if t == "vision_run":
+            base, start, detail = foundry.VISIONLAB_URL, "/api/run", "/api/runs/"
+            payload = {"task_id": render(data.get("task_id", ""), ctx), "asset_id": render(data.get("asset_id", ""), ctx)}
+        elif t == "voice_run":
+            base, start, detail = foundry.VOICELAB_URL, "/api/simulate", "/api/runs/"
+            payload = {"agent_id": render(data.get("agent_id", ""), ctx), "scenario_id": render(data.get("scenario_id", ""), ctx),
+                       "max_turns": int(data.get("max_turns") or 6)}
+        elif t == "mcp_call":
+            base, start, detail = foundry.MCPLAB_URL, "/api/test", "/api/tests/"
+            raw = data.get("arguments")
+            if isinstance(raw, str):
+                try:
+                    args = json.loads(render(raw, ctx)) if raw.strip() else {}
+                except Exception:
+                    args = {}
+            else:
+                args = dict(raw or {})
+            payload = {"connector_id": render(data.get("connector_id", ""), ctx),
+                       "tool_name": render(data.get("tool", ""), ctx), "arguments": args}
+        else:
+            base, start, detail = foundry.SWARMLAB_URL, "/api/run", "/api/runs/"
+            payload = {"swarm_id": render(data.get("swarm_id", ""), ctx),
+                       "task_input": render(data.get("task", "") or incoming_text, ctx)}
+        if data.get("model"):
+            payload["model"] = render(str(data["model"]), ctx)
+        wait_s = min(float(data.get("wait_s") or 240), 570)
+        async with httpx.AsyncClient(timeout=45) as c:
+            r = await c.post(base + start, headers=headers, json=payload)
+            if r.status_code != 200:
+                raise ValueError(f"{t} start failed: HTTP {r.status_code} — {r.text[:200]}")
+            j = r.json() if r.text else {}
+            job_id = j.get("job_id")
+            rid = j.get("run_id") or (j.get("run") or {}).get("id") or j.get("id")
+            status = j.get("status") or (j.get("run") or {}).get("status") or "complete"
+            # blocked/not-testable paths return the finished resource inline with no job
+            if job_id:
+                loop = asyncio.get_event_loop()
+                deadline = loop.time() + wait_s
+                while loop.time() < deadline:
+                    await asyncio.sleep(2.5)
+                    jr = await c.get(f"{base}/api/jobs/{job_id}", headers=headers)
+                    if jr.status_code != 200:
+                        continue
+                    status = (jr.json() or {}).get("status") or status
+                    if status in ("succeeded", "partial", "failed", "blocked", "timed_out", "cancelled", "interrupted"):
+                        break
+                else:
+                    raise ValueError(f"{t}: lab job still {status} after {int(wait_s)}s — raise wait_s or check the lab's Runs page")
+            run = {}
+            if rid:
+                dr = await c.get(f"{base}{detail}{rid}", headers=headers)
+                if dr.status_code == 200:
+                    run = dr.json() or {}
+        if t == "vision_run":
+            conf = run.get("confidence")
+            return {"output": run.get("structured") or run.get("summary") or run,
+                    "meta": f"Vision {status}" + (f" · conf {round(float(conf), 2)}" if conf is not None else ""),
+                    "summary": run.get("summary"), "evidence": run.get("evidence")}
+        if t == "voice_run":
+            scores = run.get("scores") or {}
+            return {"output": run.get("outcome") or status,
+                    "meta": f"Voice {status} · {run.get('turns_used') or '?'} turns",
+                    "transcript": run.get("transcript"), "scores": scores}
+        if t == "mcp_call":
+            return {"output": run.get("result") if run.get("result") is not None else run.get("error") or status,
+                    "meta": f"MCP {status}" + (f" · {run.get('decision')}" if run.get("decision") else ""),
+                    "decision": run.get("decision")}
+        return {"output": run.get("final_output") or run.get("outcome") or status,
+                "meta": f"Swarm {status} · {run.get('steps_used') or '?'} steps",
+                "trace": run.get("trace"), "outcome": run.get("outcome")}
 
     if t == "webhook":
         return {"output": ctx.get("trigger") or {}, "meta": "webhook trigger"}

@@ -22,6 +22,10 @@ from contextvars import ContextVar
 ENABLED = os.environ.get("FOUNDRY_INTEGRATION", "on").lower() not in ("off", "false", "0")
 SPENDGUARD_URL = os.environ.get("SPENDGUARD_URL", "http://127.0.0.1:8701").rstrip("/")
 TRUSTGATE_URL = os.environ.get("TRUSTGATE_URL", "http://127.0.0.1:8700").rstrip("/")
+VISIONLAB_URL = os.environ.get("VISIONLAB_URL", "http://127.0.0.1:8704").rstrip("/")
+VOICELAB_URL = os.environ.get("VOICELAB_URL", "http://127.0.0.1:8705").rstrip("/")
+MCPLAB_URL = os.environ.get("MCPLAB_URL", "http://127.0.0.1:8706").rstrip("/")
+SWARMLAB_URL = os.environ.get("SWARMLAB_URL", "http://127.0.0.1:8707").rstrip("/")
 SECRET = os.environ.get("BUILDER_SESSION_SECRET", "")
 
 # per-run auth: the zb_session token to present to sibling apps
@@ -49,6 +53,12 @@ def _headers():
 
 def available():
     return ENABLED and bool(_headers())
+
+
+def lab_headers():
+    """Auth headers for calling a sibling lab as the run's user — the forwarded session on
+    interactive runs, or the minted owner session on unattended (webhook/schedule) runs."""
+    return _headers()
 
 
 # --- SpendGuard: emit real usage from a completed run ----------------------
