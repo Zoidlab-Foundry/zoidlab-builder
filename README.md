@@ -4,7 +4,7 @@
 
 <h1 align="center">ZoidLab · AI Workflow Builder</h1>
 
-<p align="center"><b>Part of the <a href="https://github.com/Zoidlab-Foundry-m/zoidlab-foundry">ZoidLab platform</a> · Live at <a href="https://builder.zoidlab.ai">builder.zoidlab.ai</a></b></p>
+<p align="center"><b>Part of the <a href="https://github.com/Zoidlab-Foundry/zoidlab-foundry">ZoidLab platform</a> · Live at <a href="https://builder.zoidlab.ai">builder.zoidlab.ai</a></b></p>
 
 > **Access — Nyquest Pro.** Your Nyquest account is your ZoidLab login (no separate signup).
 > Sign in through Nyquest; a **Pro or Teams** plan unlocks the Builder. One `.zoidlab.ai`
@@ -23,14 +23,17 @@ zoidlab-builder/
 │  ├─ lib/catalog.ts   ← node types: drives the library palette AND the config panel
 │  ├─ lib/store.ts     ← Zustand: nodes/edges/run status
 │  └─ app/page.tsx     ← the builder (canvas + library + config + live run)
-└─ backend/    FastAPI + SQLite + in-process DAG executor
+└─ backend/    FastAPI + Postgres (per-tenant RLS) + in-process DAG executor
    ├─ schema.py    ← the workflow JSON DAG contract
    ├─ executor.py  ← walks the graph, streams node status as SSE
    ├─ nodes.py     ← node execution + {{expression}} template engine
    └─ llm.py       ← Nyquest relay client (OpenAI-compatible)
 ```
 
-**Node types (slice):** Start · Prompt · LLM (via Nyquest relay) · Decision · HTTP · End.
+**Node types:** Start · Prompt · LLM (via Nyquest relay) · Decision · Switch · HTTP · Merge ·
+Summarizer · Email · Variable · Model · TrustGate · **Foundry composition:** RAG Query ·
+Memory Recall · Prompt Run · Vision Run · Voice Simulation · MCP Tool Call · Swarm Run —
+the last four start a lab's durable Celery job as the signed-in user and wait for the result.
 **Run model:** POST `/api/run` streams `{node, status}` events; the canvas highlights
 nodes yellow (running) → green (complete) / red (error), with per-node output + tokens.
 
