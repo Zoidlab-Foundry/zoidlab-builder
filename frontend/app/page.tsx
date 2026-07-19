@@ -301,6 +301,13 @@ function Builder() {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <span className="mr-1 text-[11px] text-dim">{s.models.length ? `${s.models.length} models` : "connecting…"}</span>
+          <a
+            href="https://foundry.zoidlab.ai"
+            className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-dim hover:border-cy hover:text-ink"
+            title="Back to the Foundry hub"
+          >
+            ◈ Foundry
+          </a>
           <button
             data-tour="guide"
             onClick={() => setTourOpen(true)}
