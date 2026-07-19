@@ -11,7 +11,7 @@ import socket
 import ipaddress
 from urllib.parse import urlparse
 import httpx
-import db
+import db_pg as db
 import pricing
 from llm import chat, post_json, get_json, run_agent, DEFAULT_MODEL
 

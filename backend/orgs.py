@@ -13,7 +13,7 @@ binds the pending rows to their Nyquest user id. Adding by a known user id is im
 Shares the builder SQLite database (db._conn / same file)."""
 import uuid
 import datetime
-import db
+import db_pg as db
 
 ROLE_RANK = {"viewer": 1, "editor": 2, "admin": 3, "owner": 4}
 ROLES = list(ROLE_RANK)
