@@ -13,7 +13,8 @@
     "next": "15.1.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "zustand": "^5.0.2"
+    "zustand": "^5.0.2",
+    "@foundry/ui": "github:Zoidlab-Foundry/foundry-ui#v0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

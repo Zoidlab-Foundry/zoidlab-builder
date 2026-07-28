@@ -73,6 +73,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ZoidLab Workflow Builder", version="0.1.0", lifespan=lifespan)
 
+from foundry_common import assistant
+from assistant_manifest import MANIFEST
+app.include_router(assistant.make_router(MANIFEST))
+
 import os as _os
 _ALLOWED_ORIGINS = [o.strip() for o in _os.environ.get(
     "BUILDER_ALLOWED_ORIGINS",

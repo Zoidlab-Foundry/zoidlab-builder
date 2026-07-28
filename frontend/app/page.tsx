@@ -1,4 +1,5 @@
 "use client";
+import { AssistantPanel } from "@foundry/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
@@ -316,7 +317,7 @@ function Builder() {
           >
             ? Guide
           </button>
-          <button
+          <button data-assist="flowsmith"
             data-tour="flowsmith"
             onClick={() => setFlowsmithOpen(true)}
             className="rounded-lg border border-vi/40 bg-vi/10 px-4 py-1.5 text-[12px] font-medium text-ind hover:bg-vi/20"
@@ -464,6 +465,7 @@ function Builder() {
           setTimeout(() => fitView({ padding: 0.2, duration: 400 }), 60);
         }}
       />
+      <AssistantPanel app="Builder" />
     </div>
   );
 }
