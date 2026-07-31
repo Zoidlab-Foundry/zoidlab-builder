@@ -488,7 +488,9 @@ async def exec_node(node, ctx):
         if not url:
             return {"output": message, "meta": f"composed · dry-run (no webhook URL)"}
         payload = {"text": message} if t == "slack" else {"content": message[:2000]}
-        async with httpx.AsyncClient(timeout=30) as c:
+        _ssrf_guard(url)  # same guard the http node uses — the URL is user-supplied
+        # follow_redirects=False so a 3xx can't bounce past the guard to an internal host
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as c:
             r = await c.post(url, json=payload)
         ok = r.status_code < 300
         return {"output": message,
